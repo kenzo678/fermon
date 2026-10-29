@@ -1,11 +1,14 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from types import SimpleNamespace, TracebackType
 from typing import Any
 
 import aiomqtt
+import pytest
 
 from fermon.fermentation.application import IngestReading
+from fermon.fermentation.domain import Reading
 from fermon.fermentation.infrastructure.mqtt import consumer
 from fermon.shared.config import Settings
 from tests.fermentation.fakes import InMemoryReadingRepository
@@ -18,7 +21,8 @@ def make_settings() -> Settings:
         mqtt_host="broker",
         mqtt_port=1883,
         mqtt_client_id="test-ingestor",
-        mqtt_topic="fermon/tanks/+/readings",
+        mqtt_topic_prefix="fermon",
+        mqtt_clean_session=False,
     )
 
 
@@ -165,9 +169,158 @@ async def test_received_messages_are_ingested_and_invalid_ones_do_not_stop_the_l
     assert [r.recorded_at.second for r in repo.readings] == [0, 1]
 
 
-async def test_ingest_failure_pauses_with_backoff_and_keeps_running() -> None:
-    from tests.fermentation.infrastructure.mqtt.test_handle_message import FailingRepository
+class FlakyRepository(InMemoryReadingRepository):
+    """Fails ``failures`` times (None = forever) with an infrastructure error, then works."""
 
-    waits, clients = await run_script(["ok", "fail"], [message(payload())], FailingRepository())
-    assert waits[0] == 1
-    assert len(clients) >= 2
+    def __init__(self, failures: int | None) -> None:
+        super().__init__()
+        self.failures = failures
+        self.attempts = 0
+
+    async def add(self, reading: Reading) -> bool:
+        self.attempts += 1
+        if self.failures is None or self.attempts <= self.failures:
+            raise ConnectionError("database down")
+        return await super().add(reading)
+
+
+async def run_with_flaky_repo(
+    repo: FlakyRepository, items: list[Any], stop_after_waits: int | None = None
+) -> tuple[list[float], list[FakeClient]]:
+    stop = asyncio.Event()
+    waits: list[float] = []
+    clients: list[FakeClient] = []
+
+    def factory(settings: Settings) -> FakeClient:
+        client = FakeClient("ok", items, stop)
+        clients.append(client)
+        return client
+
+    async def fake_wait(_stop: asyncio.Event, seconds: float) -> None:
+        waits.append(seconds)
+        if stop_after_waits is not None and len(waits) >= stop_after_waits:
+            stop.set()
+        await asyncio.sleep(0)
+
+    await asyncio.wait_for(
+        consumer.run_consumer(
+            make_settings(), IngestReading(repo), stop, client_factory=factory, wait=fake_wait
+        ),
+        timeout=5,
+    )
+    return waits, clients
+
+
+async def test_ingest_failure_retries_same_message_with_escalating_backoff() -> None:
+    repo = FlakyRepository(failures=7)
+    waits, clients = await run_with_flaky_repo(repo, [message(payload())])
+    assert waits == [1, 2, 4, 8, 16, 30, 30]
+    assert repo.attempts == 8
+    assert len(repo.readings) == 1  # stored exactly once after recovery
+    assert len(clients) == 1  # never disconnected from the broker
+
+
+async def test_messages_after_an_outage_are_processed_and_backoff_resets() -> None:
+    repo = FlakyRepository(failures=2)
+    second = payload(recorded_at="2026-01-01T12:00:01Z")
+    items = [message(payload()), message(second)]
+    waits, clients = await run_with_flaky_repo(repo, items)
+    assert waits == [1, 2]
+    assert [r.recorded_at.second for r in repo.readings] == [0, 1]
+    assert len(clients) == 1
+
+
+async def test_backoff_restarts_at_one_for_a_later_outage() -> None:
+    repo = FlakyRepository(failures=2)
+    items = [message(payload()), message(payload(recorded_at="2026-01-01T12:00:01Z"))]
+    original_add = InMemoryReadingRepository.add
+    calls = 0
+
+    async def add(self: FlakyRepository, reading: Reading) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls in (1, 2, 4):  # outage, recovery, second outage on the next message
+            raise ConnectionError("database down")
+        return await original_add(self, reading)
+
+    repo.add = add.__get__(repo)  # type: ignore[method-assign]
+    waits, _ = await run_with_flaky_repo(repo, items)
+    assert waits == [1, 2, 1]
+
+
+async def test_stop_during_ingest_retry_exits_and_logs_unstored_message(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    repo = FlakyRepository(failures=None)
+    with caplog.at_level(logging.WARNING):
+        waits, clients = await run_with_flaky_repo(repo, [message(payload())], stop_after_waits=2)
+    assert waits == [1, 2]
+    assert repo.readings == []
+    assert len(clients) == 1
+    assert any("not stored" in r.getMessage() for r in caplog.records)
+
+
+async def test_stop_during_real_ingest_wait_exits_promptly() -> None:
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    loop.call_later(0.05, stop.set)
+    start = loop.time()
+    await asyncio.wait_for(
+        consumer.run_consumer(
+            make_settings(),
+            IngestReading(FlakyRepository(failures=None)),
+            stop,
+            client_factory=lambda s: FakeClient("ok", [message(payload())], None),
+        ),
+        timeout=3,
+    )
+    assert loop.time() - start < 0.5
+
+
+async def test_subscribes_to_the_configured_prefix() -> None:
+    settings = make_settings().model_copy(update={"mqtt_topic_prefix": "fermon-test"})
+    stop = asyncio.Event()
+    clients: list[FakeClient] = []
+
+    def factory(s: Settings) -> FakeClient:
+        client = FakeClient("ok", [], stop)
+        clients.append(client)
+        return client
+
+    await asyncio.wait_for(
+        consumer.run_consumer(
+            settings, IngestReading(InMemoryReadingRepository()), stop, client_factory=factory
+        ),
+        timeout=3,
+    )
+    assert clients[0].subscriptions == [("fermon-test/tanks/+/readings", 1)]
+
+
+async def test_ready_is_set_after_subscribing() -> None:
+    stop = asyncio.Event()
+    ready = asyncio.Event()
+    client = FakeClient("ok", [], None)
+    task = asyncio.create_task(
+        consumer.run_consumer(
+            make_settings(),
+            IngestReading(InMemoryReadingRepository()),
+            stop,
+            client_factory=lambda s: client,
+            ready=ready,
+        )
+    )
+    await asyncio.wait_for(ready.wait(), timeout=3)
+    assert client.subscriptions  # ready only after the subscribe succeeded
+    stop.set()
+    await asyncio.wait_for(task, timeout=3)
+
+
+def test_default_client_factory_honors_clean_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(consumer.aiomqtt, "Client", lambda *a, **kw: captured.update(kw))
+    consumer._default_client_factory(make_settings())  # noqa: SLF001
+    assert captured["clean_session"] is False
+    consumer._default_client_factory(  # noqa: SLF001
+        make_settings().model_copy(update={"mqtt_clean_session": True})
+    )
+    assert captured["clean_session"] is True

@@ -222,5 +222,18 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   - SUGGESTION `R3-integration-fixture-subscribe-race`: `sleep(1)` fijo y sesiones persistentes acumuladas en el broker.
   - SUGGESTION `R3-ingestor-shares-api-venv-volume`: `api` e `ingestor` comparten el volumen del venv.
 
+- [x] T7.1 — Seguimiento de la revisión T7 y del smoke (ruta delegada, escritor):
+  reintento en el lugar ante fallo de infraestructura (sin desconectar; backoff 1→30 s por mensaje;
+  al detenerse se loguea el mensaje no guardado), `mqtt_topic_prefix` configurable (tests usan
+  `fermon-test`), `mqtt_clean_session` (tests usan sesión limpia con id fijo), evento `ready` en lugar de
+  `sleep(1)`, volumen propio `ingestor-venv`, y el simulador recorta a 0 el ruido de presión y alcohol
+  (los picos siguen fuera de rango). Evidencia TDD: RED inicial 25 fallos (Settings rechazaba campos
+  nuevos, `TypeError` en `parse_topic`/`handle_message`); para el RED de comportamiento se agregaron
+  primero solo los campos de Settings (desvío menor declarado): 6 failed, p. ej.
+  `assert [1.0, 1.0, ...] == [1, 2, 4, 8, 16, 30, ...]`. Simulador: RED `assert -0.04 == 0.0`.
+  Caracterización declarada en varios tests. GREEN: backend `139 passed`, simulador `75 passed`;
+  ruff/format/mypy OK en ambos. Smoke: sin descartes de alcohol en el ingestor; GET tank-1 → 108 filas
+  (incluye datos del smoke anterior). Spot check del orquestador: 139 y 75 passed.
+
 ## Próximo paso
-T7.1 — seguimiento de la revisión de T7 y de los hallazgos del smoke.
+Revisión del tramo T7.1 y cierre de la feature (PR, decisión del usuario).

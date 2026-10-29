@@ -53,7 +53,7 @@ services:
       MQTT_PORT: ${MQTT_PORT:-1883}
     volumes:
       - ./backend:/app
-      - api-venv:/app/.venv
+      - ingestor-venv:/app/.venv
     restart: unless-stopped
     depends_on:
       timescaledb:
@@ -86,4 +86,5 @@ services:
 volumes:
   timescale-data:
   api-venv:
+  ingestor-venv:
   simulator-venv:

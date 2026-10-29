@@ -84,3 +84,16 @@ async def test_infrastructure_error_is_logged_and_reraised(
     with caplog.at_level(logging.ERROR), pytest.raises(ConnectionError):
         await handle_message(TOPIC, payload(), IngestReading(FailingRepository()))
     assert any(r.exc_info for r in caplog.records)
+
+
+async def test_handle_message_validates_against_the_configured_prefix() -> None:
+    repo = InMemoryReadingRepository()
+    await handle_message(TOPIC, payload(), IngestReading(repo), topic_prefix="fermon-test")
+    assert repo.readings == []
+    await handle_message(
+        "fermon-test/tanks/tank-1/readings",
+        payload(),
+        IngestReading(repo),
+        topic_prefix="fermon-test",
+    )
+    assert len(repo.readings) == 1

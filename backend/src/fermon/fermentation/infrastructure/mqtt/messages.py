@@ -1,4 +1,4 @@
-"""MQTT wire contract: topic ``fermon/tanks/{tank_id}/readings`` + JSON payload."""
+"""MQTT wire contract: topic ``{prefix}/tanks/{tank_id}/readings`` + JSON payload."""
 
 import re
 from typing import Annotated
@@ -7,11 +7,9 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from fermon.fermentation.application import IngestReadingCommand
 
-_TOPIC_PATTERN = re.compile(r"^fermon/tanks/([^/+#]+)/readings$")
-
 
 class InvalidTopicError(ValueError):
-    """Raised when a topic does not follow ``fermon/tanks/{tank_id}/readings``."""
+    """Raised when a topic does not follow ``{prefix}/tanks/{tank_id}/readings``."""
 
 
 class ReadingMessage(BaseModel):
@@ -24,9 +22,9 @@ class ReadingMessage(BaseModel):
     recorded_at: AwareDatetime
 
 
-def parse_topic(topic: str) -> str:
+def parse_topic(topic: str, prefix: str) -> str:
     """Return the tank id carried by ``topic`` or raise ``InvalidTopicError``."""
-    match = _TOPIC_PATTERN.match(topic)
+    match = re.fullmatch(rf"{re.escape(prefix)}/tanks/([^/+#]+)/readings", topic)
     if match is None:
         raise InvalidTopicError(f"unexpected topic '{topic}'")
     return match.group(1)

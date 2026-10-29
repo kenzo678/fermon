@@ -70,6 +70,19 @@ async def test_post_stores_the_reading(
     assert [r.tank_id for r in repository.readings] == ["tank-1"]
 
 
+async def test_post_duplicate_returns_200_with_the_first_stored_reading(
+    client: AsyncClient, repository: InMemoryReadingRepository
+) -> None:
+    first = await client.post("/readings", json=make_body(value=18.5))
+    second = await client.post("/readings", json=make_body(value=19.0))
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert second.json()["value"] == 18.5
+    assert len(repository.readings) == 1
+
+
 @pytest.mark.parametrize(
     ("overrides", "field"),
     [
@@ -90,25 +103,34 @@ async def test_post_domain_violation_returns_422_with_field(
     assert isinstance(error["message"], str)
 
 
-async def test_post_naive_datetime_returns_422(client: AsyncClient) -> None:
+async def test_post_naive_datetime_returns_unified_422(client: AsyncClient) -> None:
     response = await client.post("/readings", json=make_body(recorded_at="2026-01-01T10:00:00"))
 
     assert response.status_code == 422
+    (error,) = response.json()["detail"]
+    assert error["field"] == "recorded_at"
+    assert isinstance(error["message"], str)
 
 
-async def test_post_extra_field_returns_422(client: AsyncClient) -> None:
+async def test_post_extra_field_returns_unified_422(client: AsyncClient) -> None:
     response = await client.post("/readings", json=make_body(color="red"))
 
     assert response.status_code == 422
+    (error,) = response.json()["detail"]
+    assert error["field"] == "color"
+    assert isinstance(error["message"], str)
 
 
-async def test_post_missing_field_returns_422(client: AsyncClient) -> None:
+async def test_post_missing_field_returns_unified_422(client: AsyncClient) -> None:
     body = make_body()
     del body["value"]
 
     response = await client.post("/readings", json=body)
 
     assert response.status_code == 422
+    (error,) = response.json()["detail"]
+    assert error["field"] == "value"
+    assert isinstance(error["message"], str)
 
 
 async def test_get_returns_tank_readings_in_range_ordered_end_exclusive(
@@ -173,6 +195,17 @@ async def test_get_missing_or_naive_params_return_422(
     response = await client.get("/tanks/tank-1/readings", params=params)
 
     assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert errors
+    assert all(set(e) == {"field", "message"} for e in errors)
+
+
+async def test_get_missing_start_reports_the_start_field(client: AsyncClient) -> None:
+    response = await client.get("/tanks/tank-1/readings", params={"end": "2026-01-01T13:00:00Z"})
+
+    assert response.status_code == 422
+    (error,) = response.json()["detail"]
+    assert error["field"] == "start"
 
 
 async def test_get_blank_tank_id_returns_422_with_field(client: AsyncClient) -> None:
@@ -184,12 +217,3 @@ async def test_get_blank_tank_id_returns_422_with_field(client: AsyncClient) -> 
     assert response.status_code == 422
     (error,) = response.json()["detail"]
     assert error["field"] == "tank_id"
-
-
-async def test_health_does_not_need_the_database() -> None:
-    async with AsyncClient(
-        transport=ASGITransport(app=create_app()), base_url="http://test"
-    ) as client:
-        response = await client.get("/health")
-
-    assert response.status_code == 200

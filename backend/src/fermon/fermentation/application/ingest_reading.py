@@ -15,11 +15,19 @@ class IngestReadingCommand:
     recorded_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class IngestResult:
+    """Outcome of an ingest: the stored reading and whether this call created it."""
+
+    reading: Reading
+    created: bool
+
+
 class IngestReading:
     def __init__(self, repository: ReadingRepository) -> None:
         self._repository = repository
 
-    async def execute(self, command: IngestReadingCommand) -> Reading:
+    async def execute(self, command: IngestReadingCommand) -> IngestResult:
         try:
             measurement = MeasurementType(command.measurement)
         except ValueError:
@@ -35,5 +43,12 @@ class IngestReading:
             unit=command.unit,
             recorded_at=command.recorded_at,
         )
-        await self._repository.add(reading)
-        return reading
+        if await self._repository.add(reading):
+            return IngestResult(reading=reading, created=True)
+
+        stored = await self._repository.get(
+            reading.tank_id, reading.sensor_id, reading.measurement, reading.recorded_at
+        )
+        if stored is None:  # pragma: no cover - rows are never deleted by this system
+            raise RuntimeError("reading reported as duplicate but not found")
+        return IngestResult(reading=stored, created=False)

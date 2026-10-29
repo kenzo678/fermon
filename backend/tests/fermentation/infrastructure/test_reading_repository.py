@@ -79,6 +79,28 @@ async def test_duplicate_add_is_a_no_op(
     assert stored_value == 18.5
 
 
+async def test_add_reports_whether_it_inserted(
+    repository: SqlAlchemyReadingRepository,
+) -> None:
+    assert await repository.add(make_reading()) is True
+    assert await repository.add(make_reading(value=19.0)) is False
+    assert await repository.add(make_reading(sensor_id="s2")) is True
+
+
+async def test_get_returns_the_stored_reading_or_none(
+    repository: SqlAlchemyReadingRepository,
+) -> None:
+    stored = make_reading()
+    await repository.add(stored)
+    other_offset = T0.astimezone(timezone(timedelta(hours=2)))
+
+    found = await repository.get("tank-1", "s1", MeasurementType.TEMPERATURE, other_offset)
+    missing = await repository.get("tank-1", "s1", MeasurementType.PRESSURE, T0)
+
+    assert found == stored
+    assert missing is None
+
+
 async def test_readings_table_is_a_hypertable(engine: AsyncEngine) -> None:
     async with engine.connect() as conn:
         name = await conn.scalar(

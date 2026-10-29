@@ -43,10 +43,33 @@ async def test_post_then_get_round_trip(client: AsyncClient) -> None:
     assert listed.json()[0]["value"] == 18.5
 
 
-async def test_duplicate_post_keeps_a_single_row(client: AsyncClient, engine: AsyncEngine) -> None:
+async def test_duplicate_post_returns_the_first_value_and_keeps_a_single_row(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
     first = await client.post("/readings", json=BODY)
-    second = await client.post("/readings", json=BODY)
+    second = await client.post("/readings", json={**BODY, "value": 19.0})
 
-    assert first.status_code == second.status_code == 201
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert second.json()["value"] == 18.5
     async with engine.connect() as conn:
         assert await conn.scalar(text("SELECT count(*) FROM readings")) == 1
+
+
+@pytest.mark.parametrize(
+    ("offset_timestamp", "utc_timestamp"),
+    [
+        ("2026-01-01T12:00:00+02:00", "2026-01-01T10:00:00Z"),
+        ("2026-01-01T07:00:00-03:00", "2026-01-01T10:00:00Z"),
+    ],
+)
+async def test_non_utc_offsets_are_answered_normalized_to_utc_in_post_and_get(
+    client: AsyncClient, offset_timestamp: str, utc_timestamp: str
+) -> None:
+    created = await client.post("/readings", json={**BODY, "recorded_at": offset_timestamp})
+    listed = await client.get("/tanks/tank-1/readings", params=RANGE)
+
+    assert created.status_code == 201
+    assert created.json()["recorded_at"] == utc_timestamp
+    assert listed.json() == [created.json()]

@@ -48,6 +48,10 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   guard `_test` para `TEST_DATABASE_URL`, tests de drift y de ciclo downgrade/upgrade,
   `validate_time_range` de dominio compartido por caso de uso y adaptador. Ruta: delegado.
 - [x] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
+- [x] T5.1 — Seguimiento de la revisión T4.1+T5: POST honesto (`add -> bool`, `get`,
+  `IngestResult`; 201 creada / 200 ya existía con el primer valor), formato 422 único
+  `{"detail":[{"field","message"}]}` también para errores de Pydantic, test de health con lifespan
+  real, timestamps de respuesta normalizados a UTC. Ruta: delegado (escritor).
 - [ ] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
 - [ ] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
 
@@ -143,6 +147,11 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   - WARNING `R3-idempotent-post-response-may-misreport-stored-value`: un POST duplicado con otro valor responde el valor nuevo aunque la base guarda el primero.
   - SUGGESTION `R3-health-test-skips-lifespan`: el test de health no ejecuta el lifespan.
   - SUGGESTION `R3-non-utc-offset-roundtrip-unproved`: falta test de ida y vuelta con offset no UTC.
+
+- T5.1 completada. Evidencia TDD: RED `ImportError: IngestResult` + 14 fallos (duplicado 200,
+  422 unificado, add/get del repo, offsets no UTC); el test de health con lifespan es de
+  caracterización (ya pasaba: el engine es lazy). GREEN `99 passed`; unitarios `82 passed,
+  17 deselected`. ruff/format/mypy OK. Spot check del orquestador: 99 passed.
 
 ## Próximo paso
 T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.

@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Row, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -12,8 +13,9 @@ class SqlAlchemyReadingRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
-    async def add(self, reading: Reading) -> None:
-        # Idempotent: MQTT QoS 1 may redeliver the same reading.
+    async def add(self, reading: Reading) -> bool:
+        # Idempotent: MQTT QoS 1 may redeliver the same reading. RETURNING yields a row
+        # only when the insert happened, so no row means the identity already existed.
         statement = (
             insert(readings)
             .values(
@@ -25,9 +27,23 @@ class SqlAlchemyReadingRepository:
                 recorded_at=reading.recorded_at,
             )
             .on_conflict_do_nothing(constraint="uq_readings_identity")
+            .returning(readings.c.tank_id)
         )
         async with self._session_factory() as session, session.begin():
-            await session.execute(statement)
+            return (await session.execute(statement)).first() is not None
+
+    async def get(
+        self, tank_id: str, sensor_id: str, measurement: MeasurementType, recorded_at: datetime
+    ) -> Reading | None:
+        statement = select(readings).where(
+            readings.c.tank_id == normalize_id("tank_id", tank_id),
+            readings.c.sensor_id == normalize_id("sensor_id", sensor_id),
+            readings.c.measurement == measurement.value,
+            readings.c.recorded_at == recorded_at,
+        )
+        async with self._session_factory() as session:
+            row = (await session.execute(statement)).first()
+        return _to_domain(row) if row is not None else None
 
     async def list_by_tank(self, tank_id: str, start: datetime, end: datetime) -> list[Reading]:
         validate_time_range(start, end)
@@ -42,14 +58,15 @@ class SqlAlchemyReadingRepository:
         )
         async with self._session_factory() as session:
             rows = (await session.execute(statement)).all()
-        return [
-            Reading(
-                tank_id=row.tank_id,
-                sensor_id=row.sensor_id,
-                measurement=MeasurementType(row.measurement),
-                value=row.value,
-                unit=row.unit,
-                recorded_at=row.recorded_at,
-            )
-            for row in rows
-        ]
+        return [_to_domain(row) for row in rows]
+
+
+def _to_domain(row: Row[Any]) -> Reading:
+    return Reading(
+        tank_id=row.tank_id,
+        sensor_id=row.sensor_id,
+        measurement=MeasurementType(row.measurement),
+        value=row.value,
+        unit=row.unit,
+        recorded_at=row.recorded_at,
+    )

@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from fermon.fermentation.domain import Reading
@@ -17,6 +19,8 @@ class ReadingIn(BaseModel):
 
 
 class ReadingOut(BaseModel):
+    """Outbound reading. Timestamps are always normalized to UTC."""
+
     tank_id: str
     sensor_id: str
     measurement: str
@@ -32,7 +36,7 @@ class ReadingOut(BaseModel):
             measurement=reading.measurement.value,
             value=reading.value,
             unit=reading.unit,
-            recorded_at=reading.recorded_at,
+            recorded_at=reading.recorded_at.astimezone(UTC),
         )
 
 

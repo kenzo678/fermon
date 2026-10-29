@@ -96,3 +96,44 @@ def test_disconnect_window_is_exactly_disconnect_ticks_long() -> None:
     object.__setattr__(inj, "config", FaultConfig(disconnect_rate=0.0, disconnect_ticks=3))
     results = [inj.begin_tick("d") for _ in range(5)]
     assert results == [False, False, True, True, True]
+
+
+class NegativeNoiseRandom(random.Random):
+    """Random source whose noise is always negative; ``random()`` returns a fixed draw."""
+
+    def __init__(self, draw: float) -> None:
+        super().__init__(0)
+        self.draw = draw
+
+    def random(self) -> float:
+        return self.draw
+
+    def gauss(self, mu: float = 0.0, sigma: float = 1.0) -> float:
+        return -0.05
+
+
+def negative_noise_injector(draw: float, spike_rate: float = 0.0) -> FaultInjector:
+    config = FaultConfig(dropout_rate=0.0, spike_rate=spike_rate, disconnect_rate=0.0)
+    return FaultInjector(config, NegativeNoiseRandom(draw))
+
+
+def test_noise_never_makes_abv_or_pressure_negative() -> None:
+    inj = negative_noise_injector(draw=0.5)
+    assert inj.apply("alcohol", 0.01) == 0.0
+    assert inj.apply("pressure", 0.0) == 0.0
+
+
+def test_noise_clamp_does_not_alter_values_that_stay_positive() -> None:
+    inj = negative_noise_injector(draw=0.5)
+    assert inj.apply("alcohol", 2.0) == pytest.approx(1.95)
+
+
+def test_temperature_noise_is_not_clamped() -> None:
+    inj = negative_noise_injector(draw=0.5)
+    assert inj.apply("temperature", -0.01) == pytest.approx(-0.06)
+
+
+def test_spikes_stay_out_of_range_despite_the_clamp() -> None:
+    inj = negative_noise_injector(draw=0.0, spike_rate=1.0)
+    assert inj.apply("alcohol", 0.0) == 50.0
+    assert inj.apply("pressure", 0.0) == 25.0

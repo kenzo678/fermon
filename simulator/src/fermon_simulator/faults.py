@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 # Values outside the backend's physical limits (-20..100 C, 0..10 bar, 0..20 %ABV).
 SPIKE_VALUES: dict[str, float] = {"temperature": 150.0, "pressure": 25.0, "alcohol": 50.0}
 
+# A real device never reports physically impossible negatives for these (pressure is gauge here).
+NON_NEGATIVE_MEASUREMENTS = frozenset({"pressure", "alcohol"})
+
 
 @dataclass(frozen=True)
 class FaultConfig:
@@ -58,4 +61,7 @@ class FaultInjector:
             return None
         if spiked:
             return SPIKE_VALUES[measurement]
-        return value + noise
+        noisy = value + noise
+        if measurement in NON_NEGATIVE_MEASUREMENTS:
+            return max(0.0, noisy)  # clamp noise output only; spikes stay out of range on purpose
+        return noisy

@@ -39,7 +39,7 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   multi-stage, `docker-compose.yml` (api, timescaledb, mosquitto), endpoint `GET /health` con test.
   Ruta: delegado (escritor) — dispara el trigger de 2+ archivos no triviales.
 - [x] T2 — Dominio: `Reading` y `MeasurementType` con validación por tipo de medición (TDD).
-- [ ] T3 — Caso de uso `ingest_reading` + puerto `ReadingRepository` (TDD con repo fake).
+- [x] T3 — Caso de uso `ingest_reading` + puerto `ReadingRepository` (TDD con repo fake).
 - [ ] T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (integración).
 - [ ] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
 - [ ] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
@@ -69,5 +69,13 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   0..10, 0..20 (en `measurement.py`). Evidencia TDD: RED `ImportError: cannot import name
   'DomainError'`, GREEN `24 passed`. ruff/format/mypy OK. Spot check del orquestador: 24 passed.
 
+- T2 commit `f87aba5`; RDD assess (base `8bf864e`): medio, `under_budget` (210 líneas), pendiente en el tramo.
+- T3 completada (ruta delegada, escritor). `IngestReading` + `IngestReadingCommand`,
+  `ListReadings` (rango semiabierto [start, end), orden ascendente), puerto `ReadingRepository`
+  (Protocol), `InvalidTimeRangeError`. Fake `InMemoryReadingRepository` en tests. Evidencia TDD:
+  RED `ImportError: cannot import name 'ListReadings'`, GREEN `32 passed`. ruff/format/mypy OK.
+  Spot check del orquestador: 32 passed.
+- Política: push a `origin` después de cada commit de tarea (pedido del usuario).
+
 ## Próximo paso
-T3 — Caso de uso `ingest_reading` + puerto `ReadingRepository` (TDD con repo fake).
+T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (tests de integración).

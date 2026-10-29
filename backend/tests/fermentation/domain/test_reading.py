@@ -159,3 +159,9 @@ def test_wrong_types_raise_domain_error(field: str, bad: Any) -> None:
 
 def test_int_value_accepted() -> None:
     assert make(value=18).value == 18
+
+
+def test_blank_id_error_message_is_not_duplicated() -> None:
+    with pytest.raises(InvalidReadingError) as excinfo:
+        make(tank_id="  ")
+    assert str(excinfo.value) == "invalid tank_id: must not be blank"

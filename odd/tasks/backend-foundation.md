@@ -47,7 +47,7 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
 - [x] T4.1 — Seguimiento de la revisión T4: test first-write-wins, rutas de Alembic absolutas,
   guard `_test` para `TEST_DATABASE_URL`, tests de drift y de ciclo downgrade/upgrade,
   `validate_time_range` de dominio compartido por caso de uso y adaptador. Ruta: delegado.
-- [ ] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
+- [x] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
 - [ ] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
 - [ ] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
 
@@ -126,5 +126,15 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   Nota: el test de drift filtra solo `readings_recorded_at_idx`, índice que crea
   `create_hypertable()` por su cuenta (alternativa futura: `create_default_indexes => false`).
 
+- T5 completada (ruta delegada, escritor + ajuste inline del orquestador). Adaptador HTTP:
+  `ReadingIn`/`ReadingOut` (Pydantic, `extra="forbid"`, `AwareDatetime`), `POST /readings` (201,
+  idempotente), `GET /tanks/{tank_id}/readings?start&end` (semiabierto), handler `DomainError` → 422
+  `{"detail":[{"field","message"}]}`, lifespan con engine en `app.state`, dependencias inyectables.
+  Evidencia TDD: RED `ModuleNotFoundError ... http.dependencies`, GREEN `79 passed, 13 deselected`;
+  completo `92 passed`. Smoke en stack dev: POST 201 (x2 idempotente), GET 200 con 1 fila, valor 500
+  → 422 con field `value`. Ajuste inline: mensaje duplicado "invalid tank_id: invalid tank_id: ..."
+  (RED observado en test nuevo, GREEN con `reason` en los errores). Spot check final: 93 passed,
+  ruff/format/mypy OK. Sin probar contra el stack dev: POST con fecha naive (solo unitario).
+
 ## Próximo paso
-T5 — `POST /readings` + `GET /tanks/{tank_id}/readings` por rango de tiempo.
+T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.

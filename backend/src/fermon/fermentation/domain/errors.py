@@ -8,6 +8,7 @@ class InvalidIdentifierError(DomainError):
     def __init__(self, field: str, message: str) -> None:
         super().__init__(f"invalid {field}: {message}")
         self.field = field
+        self.reason = message
 
 
 class InvalidReadingError(DomainError):
@@ -16,6 +17,7 @@ class InvalidReadingError(DomainError):
     def __init__(self, field: str, message: str) -> None:
         super().__init__(f"invalid {field}: {message}")
         self.field = field
+        self.reason = message
 
 
 class InvalidTimeRangeError(DomainError):

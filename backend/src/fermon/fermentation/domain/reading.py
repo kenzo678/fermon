@@ -21,7 +21,7 @@ class Reading:
             try:
                 cleaned = normalize_id(field, getattr(self, field))
             except InvalidIdentifierError as error:
-                raise InvalidReadingError(error.field, str(error)) from None
+                raise InvalidReadingError(error.field, error.reason) from None
             object.__setattr__(self, field, cleaned)
 
         if not isinstance(self.measurement, MeasurementType):

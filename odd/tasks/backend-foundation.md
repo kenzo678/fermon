@@ -213,5 +213,14 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   - Los tests de integración publican en `fermon/tanks/tank-it/...`; si el `ingestor` de dev está
     corriendo, guarda esas filas en la base de desarrollo.
 
+- Revisión RDD de T7 (`6b32112` → `cf4f1d3`, 644 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Nuevo límite revisado: `cf4f1d3`. Hallazgos no bloqueantes
+  (seguimiento, sin autorizar todavía):
+  - WARNING `R3-ingest-failure-backoff-never-escalates`: ante caída de la base el backoff se resetea al reconectar y queda en 1 s.
+  - WARNING `R3-reconnect-on-ingest-failure-drops-buffered-messages`: reconectar tras un fallo descarta mensajes ya confirmados en el buffer de aiomqtt.
+  - SUGGESTION `R3-ingest-failure-test-does-not-prove-escalation`.
+  - SUGGESTION `R3-integration-fixture-subscribe-race`: `sleep(1)` fijo y sesiones persistentes acumuladas en el broker.
+  - SUGGESTION `R3-ingestor-shares-api-venv-volume`: `api` e `ingestor` comparten el volumen del venv.
+
 ## Próximo paso
-Revisión del tramo T7 y seguimiento de los hallazgos del smoke.
+T7.1 — seguimiento de la revisión de T7 y de los hallazgos del smoke.

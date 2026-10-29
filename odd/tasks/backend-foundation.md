@@ -57,7 +57,7 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   (intervalo y aceleración > 0, tasas 0..1, ruido >= 0, `disconnect_ticks` >= 1), tests unitarios de
   reconexión con backoff (cliente y espera inyectables), test de duración exacta de la ventana
   de desconexión. Ruta: delegado (escritor).
-- [ ] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
+- [x] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
 
 ## Criterios de aceptación
 - Tests en verde dentro de Docker en cada tarea (RED → GREEN → REFACTOR observado).
@@ -196,5 +196,22 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   Pendiente sin autorizar: SUGGESTION `R3-disconnect-test-mutates-frozen-config` (el test usa
   `object.__setattr__` sobre la config del inyector).
 
+- T7 completada (ruta delegada, escritor). Dependencia en commit propio `6b32112` (aiomqtt 2.5.1).
+  Adaptador `infrastructure/mqtt` (`ReadingMessage`, `parse_topic`, `handle_message`, `run_consumer`)
+  y proceso `python -m fermon.ingestor`, servicio Compose `ingestor` (corre por defecto, sesión
+  persistente `clean_session=False`, QoS 1, backoff 1–30 s). Mensajes inválidos se loguean y se
+  descartan; errores de infraestructura se loguean y re-lanzan. Limitación documentada: auto-ack de
+  aiomqtt pierde el mensaje si la base falla al procesarlo (trabajo futuro: ack manual).
+  **Desvío de TDD:** el escritor implementó antes que los tests y obtuvo un RED retroactivo moviendo
+  la implementación (`ImportError: stub`, 3 errores de colección); no es un RED legítimo previo.
+  GREEN `129 passed`; unitarios `110 passed, 17 deselected`; simulador `70 passed`. ruff/format/mypy
+  OK. Spot check del orquestador: 129 passed. Smoke de punta a punta: simulador → mosquitto →
+  ingestor → TimescaleDB → `GET /tanks/tank-1/readings` devolvió 43 lecturas en ~20 s.
+  Hallazgos del smoke (seguimiento, sin autorizar todavía):
+  - El simulador publica alcohol levemente negativo (≈ -0.003 a -0.07) por el ruido al inicio; el
+    backend lo descarta. Corresponde recortar a 0 en el simulador.
+  - Los tests de integración publican en `fermon/tanks/tank-it/...`; si el `ingestor` de dev está
+    corriendo, guarda esas filas en la base de desarrollo.
+
 ## Próximo paso
-T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
+Revisión del tramo T7 y seguimiento de los hallazgos del smoke.

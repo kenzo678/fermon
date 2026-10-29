@@ -8,7 +8,7 @@ Todo el desarrollo se ejecuta dentro de Docker; no se requiere Python en el equi
 - `backend/`: API FastAPI con arquitectura hexagonal (`src/fermon/fermentation/{domain,application,infrastructure}`).
 - `simulator/`: simulador de dispositivos sensor (sensor + microcontrolador) que publica lecturas por MQTT.
 - `mosquitto/`: configuración del broker MQTT (solo para desarrollo).
-- `docker-compose.yml`: servicios `api`, `timescaledb`, `mosquitto` y `simulator` (este último bajo el perfil `simulator`).
+- `docker-compose.yml`: servicios `api`, `ingestor`, `timescaledb`, `mosquitto` y `simulator` (este último bajo el perfil `simulator`).
 - `.env.example`: variables de entorno; copiar a `.env` para personalizarlas.
 
 ## Comandos de desarrollo
@@ -64,3 +64,34 @@ Variables de entorno (prefijo `SIM_`, con valores por defecto en `docker-compose
 | `SIM_DISCONNECT_RATE` | `0.005` | Probabilidad de que un tanque quede mudo `SIM_DISCONNECT_TICKS` ticks (5) |
 
 Para una señal limpia, poner las tres tasas en `0` (y el ruido `SIM_*_NOISE_STD` en `0`).
+
+## Flujo de punta a punta
+
+```
+simulador --MQTT (QoS 1)--> mosquitto --> ingestor --> TimescaleDB <-- API (GET /tanks/{id}/readings)
+```
+
+El `ingestor` es un proceso aparte del API (`python -m fermon.ingestor`, servicio `ingestor` de
+Compose, que arranca con `docker compose up`). Se suscribe a `fermon/tanks/+/readings` con QoS 1 y
+sesión persistente (`clean_session=False`, id `fermon-ingestor`), de modo que el broker encola los
+mensajes mientras el ingestor está caído. Cada mensaje se valida (tópico, JSON, esquema y reglas
+de dominio) y se guarda con `IngestReading`; los mensajes inválidos se descartan con una
+advertencia en el log y nunca detienen el proceso. Si el broker se cae, reconecta con espera
+creciente de 1 a 30 s.
+
+Semántica de entrega: QoS 1 es "al menos una vez" y la ingesta es idempotente, así que los
+duplicados no generan filas repetidas. Limitación conocida: aiomqtt confirma (ack) cada mensaje al
+recibirlo, por lo que si la base de datos falla justo mientras se procesa un mensaje, ese mensaje
+se registra en el log y se pierde. Trabajo futuro: confirmación manual tras el commit.
+
+```sh
+docker compose up -d                                       # api + ingestor + base + broker
+docker compose run --rm api uv run alembic upgrade head    # migraciones (la primera vez)
+docker compose --profile simulator up -d simulator         # empezar a publicar lecturas
+docker compose logs -f ingestor                            # ver el consumo
+curl "localhost:8000/tanks/tank-1/readings?start=2026-01-01T00:00:00Z&end=2027-01-01T00:00:00Z"
+```
+
+`start` y `end` son instantes ISO-8601 con zona horaria; el rango es `[start, end)`. Aplicar las
+migraciones antes de publicar: sin la tabla, los mensajes recibidos fallan al guardarse y se pierden
+(ver la limitación anterior).

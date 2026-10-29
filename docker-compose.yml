@@ -42,6 +42,25 @@ services:
       mosquitto:
         condition: service_started
 
+  ingestor:
+    build:
+      context: ./backend
+      target: dev
+    command: uv run python -m fermon.ingestor
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://fermon:fermon@timescaledb:5432/fermon}
+      MQTT_HOST: ${MQTT_HOST:-mosquitto}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+    volumes:
+      - ./backend:/app
+      - api-venv:/app/.venv
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+
   simulator:
     profiles: ["simulator"]
     build:

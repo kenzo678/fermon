@@ -107,5 +107,14 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
 - Runner completo: `docker compose run --rm api uv run pytest`; unitarios sin base:
   `docker compose run --rm --no-deps api uv run pytest -m "not integration"`.
 
+- Revisión RDD de T4 (`34a0aa6` → `01b8108`, 431 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Nuevo límite revisado: `01b8108`. Sugerencias no bloqueantes
+  (seguimiento, sin autorizar todavía):
+  - `R3-duplicate-test-does-not-prove-first-write-wins`: el test de duplicado no verifica que se conserve el primer valor.
+  - `R3-alembic-config-cwd-dependent`: el conftest carga Alembic con rutas relativas al cwd.
+  - `R3-truncate-honors-arbitrary-test-url`: `TEST_DATABASE_URL` sin guard; podría truncar la base dev.
+  - `R3-migration-metadata-drift-and-downgrade-unproved`: sin test de drift migración↔tabla ni de downgrade.
+  - `R3-list-by-tank-range-bounds-unvalidated`: el adaptador no valida datetimes naive/rango invertido.
+
 ## Próximo paso
 T5 — `POST /readings` + `GET /tanks/{tank_id}/readings` por rango de tiempo.

@@ -7,6 +7,7 @@ from fermon.fermentation.domain.errors import (
 from fermon.fermentation.domain.identifier import normalize_id
 from fermon.fermentation.domain.measurement import MeasurementType
 from fermon.fermentation.domain.reading import Reading
+from fermon.fermentation.domain.time_range import validate_time_range
 
 __all__ = [
     "DomainError",
@@ -16,4 +17,5 @@ __all__ = [
     "MeasurementType",
     "Reading",
     "normalize_id",
+    "validate_time_range",
 ]

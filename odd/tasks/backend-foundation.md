@@ -44,6 +44,9 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   `InvalidIdentifierError`), `ListReadings` limpia/valida `tank_id`, errores de dominio para tipos
   inválidos, tests del guard de `measurement` y de tzinfo sin offset. Ruta: delegado (escritor).
 - [x] T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (integración).
+- [x] T4.1 — Seguimiento de la revisión T4: test first-write-wins, rutas de Alembic absolutas,
+  guard `_test` para `TEST_DATABASE_URL`, tests de drift y de ciclo downgrade/upgrade,
+  `validate_time_range` de dominio compartido por caso de uso y adaptador. Ruta: delegado.
 - [ ] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
 - [ ] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
 - [ ] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
@@ -115,6 +118,13 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   - `R3-truncate-honors-arbitrary-test-url`: `TEST_DATABASE_URL` sin guard; podría truncar la base dev.
   - `R3-migration-metadata-drift-and-downgrade-unproved`: sin test de drift migración↔tabla ni de downgrade.
   - `R3-list-by-tank-range-bounds-unvalidated`: el adaptador no valida datetimes naive/rango invertido.
+
+- T4.1 completada. Evidencia TDD: RED `ModuleNotFoundError` (módulos nuevos) y 4 fallos
+  "DID NOT RAISE InvalidTimeRangeError" en el adaptador; first-write-wins, guard y migraciones
+  son tests de caracterización. GREEN `72 passed` (también desde cwd `/app/tests`); unitarios
+  `61 passed, 11 deselected`. ruff/format/mypy OK. Spot check del orquestador: 72 passed.
+  Nota: el test de drift filtra solo `readings_recorded_at_idx`, índice que crea
+  `create_hypertable()` por su cuenta (alternativa futura: `create_default_indexes => false`).
 
 ## Próximo paso
 T5 — `POST /readings` + `GET /tanks/{tank_id}/readings` por rango de tiempo.

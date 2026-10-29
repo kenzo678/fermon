@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from fermon.fermentation.domain import MeasurementType, Reading, normalize_id
+from fermon.fermentation.domain import MeasurementType, Reading, normalize_id, validate_time_range
 from fermon.fermentation.infrastructure.persistence.tables import readings
 
 
@@ -30,6 +30,7 @@ class SqlAlchemyReadingRepository:
             await session.execute(statement)
 
     async def list_by_tank(self, tank_id: str, start: datetime, end: datetime) -> list[Reading]:
+        validate_time_range(start, end)
         statement = (
             select(readings)
             .where(

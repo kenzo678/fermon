@@ -4,18 +4,18 @@ from collections.abc import AsyncIterator
 import pytest
 import pytest_asyncio
 from alembic import command
-from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from fermon.fermentation.infrastructure.persistence import SqlAlchemyReadingRepository
+from tests.fermentation.infrastructure.database import alembic_config, require_test_database
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://fermon:fermon@timescaledb:5432/fermon_test"
 
 
 def _test_database_url() -> str:
-    return os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
+    return require_test_database(os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL))
 
 
 async def _ensure_database_exists(url: str) -> None:
@@ -38,9 +38,7 @@ def migrated_database_url() -> str:
 
     url = _test_database_url()
     asyncio.run(_ensure_database_exists(url))
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", url)
-    command.upgrade(config, "head")
+    command.upgrade(alembic_config(url), "head")
     return url
 
 

@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from fermon.fermentation.domain import MeasurementType, Reading
+from fermon.fermentation.domain import InvalidTimeRangeError, MeasurementType, Reading
 from fermon.fermentation.infrastructure.persistence import SqlAlchemyReadingRepository
 
 pytestmark = pytest.mark.integration
@@ -74,6 +74,9 @@ async def test_duplicate_add_is_a_no_op(
     async with engine.connect() as conn:
         count = await conn.scalar(text("SELECT count(*) FROM readings"))
     assert count == 1
+    async with engine.connect() as conn:
+        stored_value = await conn.scalar(text("SELECT value FROM readings"))
+    assert stored_value == 18.5
 
 
 async def test_readings_table_is_a_hypertable(engine: AsyncEngine) -> None:
@@ -85,3 +88,19 @@ async def test_readings_table_is_a_hypertable(engine: AsyncEngine) -> None:
             )
         )
     assert name == "readings"
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (datetime(2026, 1, 1), T0),
+        (T0, datetime(2026, 1, 2)),
+        (T0, T0),
+        (T0 + timedelta(hours=1), T0),
+    ],
+)
+async def test_list_by_tank_rejects_naive_or_inverted_range(
+    repository: SqlAlchemyReadingRepository, start: datetime, end: datetime
+) -> None:
+    with pytest.raises(InvalidTimeRangeError):
+        await repository.list_by_tank("tank-1", start, end)

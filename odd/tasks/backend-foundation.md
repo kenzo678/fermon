@@ -53,6 +53,10 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   `{"detail":[{"field","message"}]}` también para errores de Pydantic, test de health con lifespan
   real, timestamps de respuesta normalizados a UTC. Ruta: delegado (escritor).
 - [x] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
+- [x] T6.1 — Seguimiento de la revisión T6: validación de settings del simulador al cargar
+  (intervalo y aceleración > 0, tasas 0..1, ruido >= 0, `disconnect_ticks` >= 1), tests unitarios de
+  reconexión con backoff (cliente y espera inyectables), test de duración exacta de la ventana
+  de desconexión. Ruta: delegado (escritor).
 - [ ] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
 
 ## Criterios de aceptación
@@ -177,6 +181,11 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   - WARNING `R3-tick-interval-unvalidated`: `tick_interval_seconds` acepta 0 o negativos (inunda el broker).
   - WARNING `R3-reconnect-backoff-unproved`: no hay test del camino de reconexión con backoff.
   - SUGGESTION `R3-disconnect-window-length-unproved`: no se prueba la duración exacta de la ventana de desconexión.
+
+- T6.1 completada. Evidencia TDD: RED 16 failed (12 de config aceptaban valores inválidos, 4 de
+  publisher con `TypeError` por `client_factory`); el test de la ventana de desconexión es de
+  caracterización (sin off-by-one). GREEN `71 passed` (con broker); unitarios `70 passed`.
+  ruff/format/mypy OK. Spot check del orquestador: 71 passed.
 
 ## Próximo paso
 T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.

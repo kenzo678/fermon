@@ -86,3 +86,13 @@ def test_disconnect_window_ends_and_is_per_device() -> None:
 def test_rates_must_be_probabilities(field: str) -> None:
     with pytest.raises(ValueError):
         FaultConfig(**{field: 1.5})
+
+
+def test_disconnect_window_is_exactly_disconnect_ticks_long() -> None:
+    cfg = FaultConfig(disconnect_rate=1.0, disconnect_ticks=3)
+    inj = FaultInjector(cfg, random.Random(0))
+    assert inj.begin_tick("d") is False  # trigger tick is the first silent tick
+    # Disable new triggers so the window can end.
+    object.__setattr__(inj, "config", FaultConfig(disconnect_rate=0.0, disconnect_ticks=3))
+    results = [inj.begin_tick("d") for _ in range(5)]
+    assert results == [False, False, True, True, True]

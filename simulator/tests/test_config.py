@@ -46,3 +46,28 @@ def test_invalid_tanks_fail_at_load(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SIM_TANKS", "bad")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    ("var", "value"),
+    [
+        ("SIM_TICK_INTERVAL_SECONDS", "0"),
+        ("SIM_TICK_INTERVAL_SECONDS", "-1"),
+        ("SIM_ACCELERATION", "0"),
+        ("SIM_ACCELERATION", "-5"),
+        ("SIM_DROPOUT_RATE", "1.5"),
+        ("SIM_DROPOUT_RATE", "-0.1"),
+        ("SIM_SPIKE_RATE", "2"),
+        ("SIM_DISCONNECT_RATE", "-1"),
+        ("SIM_TEMPERATURE_NOISE_STD", "-0.1"),
+        ("SIM_PRESSURE_NOISE_STD", "-0.1"),
+        ("SIM_ABV_NOISE_STD", "-0.1"),
+        ("SIM_DISCONNECT_TICKS", "0"),
+    ],
+)
+def test_invalid_numeric_settings_fail_at_load(
+    monkeypatch: pytest.MonkeyPatch, var: str, value: str
+) -> None:
+    monkeypatch.setenv(var, value)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]

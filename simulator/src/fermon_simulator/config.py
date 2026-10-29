@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fermon_simulator.faults import FaultConfig
@@ -34,18 +34,18 @@ class Settings(BaseSettings):
 
     mqtt_host: str = "localhost"
     mqtt_port: int = 1883
-    tick_interval_seconds: float = 1.0
-    acceleration: float = 600.0  # 1 real second = 10 simulated minutes
+    tick_interval_seconds: float = Field(default=1.0, gt=0)
+    acceleration: float = Field(default=600.0, gt=0)  # 1 real second = 10 simulated minutes
     seed: int | None = None
     tanks: str = "tank-1:ale,tank-2:lager"
 
-    temperature_noise_std: float = 0.1
-    pressure_noise_std: float = 0.01
-    abv_noise_std: float = 0.05
-    dropout_rate: float = 0.02
-    spike_rate: float = 0.01
-    disconnect_rate: float = 0.005
-    disconnect_ticks: int = 5
+    temperature_noise_std: float = Field(default=0.1, ge=0)
+    pressure_noise_std: float = Field(default=0.01, ge=0)
+    abv_noise_std: float = Field(default=0.05, ge=0)
+    dropout_rate: float = Field(default=0.02, ge=0, le=1)
+    spike_rate: float = Field(default=0.01, ge=0, le=1)
+    disconnect_rate: float = Field(default=0.005, ge=0, le=1)
+    disconnect_ticks: int = Field(default=5, ge=1)
 
     @field_validator("seed", mode="before")
     @classmethod

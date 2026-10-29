@@ -38,7 +38,7 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
 - [x] T1 — Scaffold del monorepo: `backend/` (uv, ruff, mypy, pytest), `backend/Dockerfile`
   multi-stage, `docker-compose.yml` (api, timescaledb, mosquitto), endpoint `GET /health` con test.
   Ruta: delegado (escritor) — dispara el trigger de 2+ archivos no triviales.
-- [ ] T2 — Dominio: `Reading` y `MeasurementType` con validación por tipo de medición (TDD).
+- [x] T2 — Dominio: `Reading` y `MeasurementType` con validación por tipo de medición (TDD).
 - [ ] T3 — Caso de uso `ingest_reading` + puerto `ReadingRepository` (TDD con repo fake).
 - [ ] T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (integración).
 - [ ] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
@@ -64,5 +64,10 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   que se resuelve con el commit del lock (no entraba en la corrección acotada de 135 líneas).
   Revisión descartada con autorización del usuario (`operator_disposition`, actor kenzo678).
 
+- T2 completada (ruta delegada, escritor). Dominio puro sin dependencias de framework.
+  Unidades canónicas: celsius, bar, percent_abv. Límites físicos inclusivos: -20..100,
+  0..10, 0..20 (en `measurement.py`). Evidencia TDD: RED `ImportError: cannot import name
+  'DomainError'`, GREEN `24 passed`. ruff/format/mypy OK. Spot check del orquestador: 24 passed.
+
 ## Próximo paso
-T2 — Dominio `Reading` / `MeasurementType` con TDD.
+T3 — Caso de uso `ingest_reading` + puerto `ReadingRepository` (TDD con repo fake).

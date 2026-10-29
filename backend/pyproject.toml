@@ -8,6 +8,9 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic>=2",
     "pydantic-settings",
+    "sqlalchemy[asyncio]>=2",
+    "asyncpg>=0.32.0",
+    "alembic>=1.20.1",
 ]
 
 [dependency-groups]
@@ -42,3 +45,6 @@ packages = ["fermon"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+markers = [
+    "integration: needs a running PostgreSQL/TimescaleDB (deselect with -m 'not integration')",
+]

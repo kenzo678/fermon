@@ -255,5 +255,21 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   Consecuencia operativa documentada: si falta la tabla (migración no aplicada) el error es permanente
   y los mensajes se descartan con ERROR; hay que correr `alembic upgrade head` antes del ingestor.
 
+- Revisión RDD de T7.2 (`1ea8756` → `0a2fa55`, 346 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Límite revisado final: `0a2fa55`. Por acuerdo con el usuario no se
+  abre otra ronda; los hallazgos pasan a trabajo futuro.
+
+## Trabajo futuro (no incluido en esta feature)
+- WARNING `R3-sqlalchemy-pool-timeout-classified-permanent`: `sqlalchemy.exc.TimeoutError` (pool agotado) se clasifica como permanente y descarta el mensaje; debería ser transitorio.
+- WARNING `R3-missing-table-now-drops-messages`: sin migración aplicada, `ProgrammingError` descarta todo; considerar que el ingestor verifique el esquema al arrancar o tratarlo como transitorio, y testear la clasificación.
+- SUGGESTION `R3-truncation-test-does-not-assert-truncation-marker`.
+- SUGGESTION `R3-disconnect-test-mutates-frozen-config` (simulador).
+- Ack manual de MQTT para no perder el mensaje si el proceso muere a mitad de un reintento.
+- Downgrade de Alembic probado en tests, pero no contra el stack dev.
+
+## Entrega
+- Estrategia: PR único `feat/backend-foundation` → `main` (decisión tardía: no se consultó la
+  estrategia de encadenamiento al superar ~400 líneas; cada tramo se revisó por separado con RDD).
+
 ## Próximo paso
-Revisión del tramo T7.2 y PR `feat/backend-foundation` → `main`.
+PR `feat/backend-foundation` → `main` (merge: decisión del usuario).

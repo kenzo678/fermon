@@ -271,5 +271,7 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
 - Estrategia: PR único `feat/backend-foundation` → `main` (decisión tardía: no se consultó la
   estrategia de encadenamiento al superar ~400 líneas; cada tramo se revisó por separado con RDD).
 
+- PR abierto: https://github.com/kenzo678/fermon/pull/1 (cuenta `dabidsillo`, autorizada por el usuario).
+
 ## Próximo paso
-PR `feat/backend-foundation` → `main` (merge: decisión del usuario).
+Merge del PR #1 (decisión del usuario). Luego: trabajo futuro o siguiente feature (frontend).

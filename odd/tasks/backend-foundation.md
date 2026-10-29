@@ -43,7 +43,7 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
 - [x] T3.1 — Seguimiento de la revisión T2+T3: normalización compartida de ids (`normalize_id`,
   `InvalidIdentifierError`), `ListReadings` limpia/valida `tank_id`, errores de dominio para tipos
   inválidos, tests del guard de `measurement` y de tzinfo sin offset. Ruta: delegado (escritor).
-- [ ] T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (integración).
+- [x] T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (integración).
 - [ ] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
 - [ ] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
 - [ ] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
@@ -91,5 +91,21 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   ruff/format/mypy OK. Spot check del orquestador: 49 passed. Los 4 hallazgos quedan resueltos.
 - Política: push a `origin` después de cada commit de tarea (pedido del usuario).
 
+- Revisión RDD de T3.1 (`0314fc9` → `ef61304`, 159 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Sugerencia no bloqueante aceptada como está:
+  `R3-value-type-guard-narrows-numeric-inputs` (Decimal/Fraction/numpy se rechazan; los
+  adaptadores envían float).
+- T4 completada (ruta delegada, escritor). Dependencias en commit propio `34a0aa6`
+  (sqlalchemy 2.1.6, asyncpg, alembic; `uv.lock` aislado por el presupuesto del revisor).
+  Tabla `readings` (Core), unique `uq_readings_identity` (tank, sensor, medición, recorded_at),
+  índice (tank_id, recorded_at DESC), ingesta idempotente `ON CONFLICT DO NOTHING`,
+  hypertable con `create_hypertable('readings', by_range('recorded_at'))` (TimescaleDB 2.31.0).
+  Alembic async. Tests de integración (`-m integration`) sobre la base `fermon_test`.
+  Evidencia TDD: RED `ModuleNotFoundError ... persistence`, GREEN `54 passed`; solo unitarios
+  `49 passed, 5 deselected`; `alembic upgrade head` OK en la base dev. ruff/format/mypy OK.
+  Spot check del orquestador: 54 passed. Sin probar: downgrade de Alembic.
+- Runner completo: `docker compose run --rm api uv run pytest`; unitarios sin base:
+  `docker compose run --rm --no-deps api uv run pytest -m "not integration"`.
+
 ## Próximo paso
-T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (tests de integración).
+T5 — `POST /readings` + `GET /tanks/{tank_id}/readings` por rango de tiempo.

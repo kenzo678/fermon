@@ -6,11 +6,17 @@ redelivers unacknowledged ones. QoS 1 is at-least-once; ``IngestReading`` is ide
 reading identity, so redeliveries collapse into effectively-once storage.
 
 aiomqtt acknowledges (PUBACK) each message as soon as it is received, so the broker will not
-redeliver it. To avoid losing messages when the database fails, an infrastructure error while
-handling a message does not disconnect: the same message is retried in place with escalating
-backoff (1, 2, 4, ... capped at 30 s) while the client stays subscribed and aiomqtt keeps buffering
-later messages. Remaining limitation: a message is lost only if the process dies (or stops) while
-it is being retried. Future work: manual acknowledgement after the commit.
+redeliver it. Failures while ingesting are classified (see ``is_transient``):
+
+* Transient (database/network connectivity or availability): the same message is retried in place
+  with escalating backoff (1, 2, 4, ... capped at 30 s) while the client stays subscribed and
+  aiomqtt keeps buffering later messages.
+* Anything else (a poison message, e.g. a constraint violation or a bug): logged at ERROR with the
+  traceback, topic and a payload preview, then dropped; the next message is processed at once, so
+  one bad message never stalls ingestion.
+
+A message is therefore lost only if the process dies (or stops) while it is being retried, or on a
+permanent error. Future work: manual acknowledgement after the commit.
 """
 
 import asyncio
@@ -20,6 +26,7 @@ from typing import Any
 
 import aiomqtt
 from pydantic import ValidationError
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 
 from fermon.fermentation.application import IngestReading
 from fermon.fermentation.domain import DomainError
@@ -36,6 +43,25 @@ logger = logging.getLogger(__name__)
 INITIAL_BACKOFF_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 30.0
 DEFAULT_TOPIC_PREFIX = "fermon"
+PAYLOAD_PREVIEW_CHARS = 200
+
+
+def is_transient(exc: BaseException) -> bool:
+    """Whether a failure while ingesting is worth retrying on the same message.
+
+    Transient means the database (or network path to it) is unavailable: SQLAlchemy operational,
+    interface and connection-invalidated DBAPI errors, OS-level/connection errors and timeouts.
+    Everything else (integrity violations, programming errors, bugs) would fail identically on
+    every retry, so it is permanent.
+    """
+    if isinstance(exc, OperationalError | InterfaceError | OSError | TimeoutError):
+        return True
+    return isinstance(exc, DBAPIError) and exc.connection_invalidated
+
+
+def _payload_preview(payload: object) -> str:
+    text = payload.decode("utf-8", errors="replace") if isinstance(payload, bytes) else str(payload)
+    return text if len(text) <= PAYLOAD_PREVIEW_CHARS else text[:PAYLOAD_PREVIEW_CHARS] + "..."
 
 
 def _drop(topic: str, reason: str) -> None:
@@ -51,7 +77,7 @@ async def handle_message(
     """Validate and ingest one message.
 
     Invalid messages (topic, JSON, schema, domain rules) are logged and dropped. Unexpected
-    errors, such as a database outage, are logged and re-raised for the caller to decide.
+    errors, such as a database outage, are re-raised unlogged for the caller to classify.
     """
     try:
         tank_id = parse_topic(topic, topic_prefix)
@@ -67,9 +93,6 @@ async def handle_message(
         await ingest.execute(command)
     except DomainError as exc:
         _drop(topic, str(exc))
-    except Exception:
-        logger.exception("failed to ingest message topic=%s", topic)
-        raise
 
 
 def _default_client_factory(settings: Settings) -> Any:
@@ -95,17 +118,25 @@ async def _handle_with_retry(
     wait: Callable[[asyncio.Event, float], Awaitable[None]],
     topic_prefix: str,
 ) -> None:
-    """Handle one message, retrying infrastructure failures in place until success or stop."""
+    """Handle one message: retry transient failures in place, drop it on a permanent one."""
     backoff = INITIAL_BACKOFF_SECONDS
     topic = str(message.topic)
     while True:
         try:
             await handle_message(topic, message.payload, ingest, topic_prefix)
             return
-        except Exception:  # already logged by handle_message
+        except Exception as exc:
+            if not is_transient(exc):
+                logger.error(
+                    "dropped message after permanent failure topic=%s payload=%s",
+                    topic,
+                    _payload_preview(message.payload),
+                    exc_info=True,
+                )
+                return
             if stop.is_set():
                 break
-            logger.warning("retrying message topic=%s in %.0fs", topic, backoff)
+            logger.warning("retrying message topic=%s in %.0fs after %r", topic, backoff, exc)
             await wait(stop, backoff)
             backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
             if stop.is_set():

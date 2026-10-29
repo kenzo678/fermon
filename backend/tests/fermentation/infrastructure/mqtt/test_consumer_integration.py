@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 import aiomqtt
 import pytest
@@ -28,9 +29,12 @@ VALID = {
 
 @pytest.fixture
 async def running_consumer(engine: AsyncEngine) -> AsyncIterator[Settings]:
-    # Clean session + fixed id: no persistent sessions accumulate on the broker.
+    # Clean session + unique id per run: concurrent runs never take over each other's connection
+    # and no persistent sessions accumulate on the broker.
     settings = Settings(
-        mqtt_client_id="fermon-it-ingestor", mqtt_topic_prefix=PREFIX, mqtt_clean_session=True
+        mqtt_client_id=f"fermon-it-{uuid4().hex[:8]}",
+        mqtt_topic_prefix=PREFIX,
+        mqtt_clean_session=True,
     )
     ingest = IngestReading(
         SqlAlchemyReadingRepository(async_sessionmaker(engine, expire_on_commit=False))

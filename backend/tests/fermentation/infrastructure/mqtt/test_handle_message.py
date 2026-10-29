@@ -78,12 +78,10 @@ async def test_invalid_message_is_dropped_with_warning(
     assert reason in record.getMessage()
 
 
-async def test_infrastructure_error_is_logged_and_reraised(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with caplog.at_level(logging.ERROR), pytest.raises(ConnectionError):
+async def test_infrastructure_error_is_reraised_for_the_caller_to_classify() -> None:
+    # Logging of infrastructure errors belongs to the consumer, which knows whether it retries.
+    with pytest.raises(ConnectionError):
         await handle_message(TOPIC, payload(), IngestReading(FailingRepository()))
-    assert any(r.exc_info for r in caplog.records)
 
 
 async def test_handle_message_validates_against_the_configured_prefix() -> None:

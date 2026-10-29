@@ -6,6 +6,7 @@ from typing import Any
 
 import aiomqtt
 import pytest
+from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
 
 from fermon.fermentation.application import IngestReading
 from fermon.fermentation.domain import Reading
@@ -324,3 +325,102 @@ def test_default_client_factory_honors_clean_session(monkeypatch: pytest.MonkeyP
         make_settings().model_copy(update={"mqtt_clean_session": True})
     )
     assert captured["clean_session"] is True
+
+
+# --- transient vs permanent failure classification -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (OperationalError("SELECT 1", {}, Exception("down")), True),
+        (InterfaceError("SELECT 1", {}, Exception("closed")), True),
+        (DBAPIError("SELECT 1", {}, Exception("gone"), connection_invalidated=True), True),
+        (ConnectionRefusedError("refused"), True),
+        (OSError("network unreachable"), True),
+        (TimeoutError(), True),
+        (DBAPIError("SELECT 1", {}, Exception("bad"), connection_invalidated=False), False),
+        (IntegrityError("INSERT", {}, Exception("dup")), False),
+        (RuntimeError("bug"), False),
+        (ValueError("bad value"), False),
+    ],
+)
+def test_is_transient_classifies_failures(exc: BaseException, expected: bool) -> None:
+    assert consumer.is_transient(exc) is expected
+
+
+class PermanentFailureRepository(InMemoryReadingRepository):
+    """Raises a permanent error for the first ``bad`` calls, then works."""
+
+    def __init__(self, error: Exception, bad: int = 1) -> None:
+        super().__init__()
+        self.error = error
+        self.bad = bad
+        self.attempts = 0
+
+    async def add(self, reading: Reading) -> bool:
+        self.attempts += 1
+        if self.attempts <= self.bad:
+            raise self.error
+        return await super().add(reading)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("boom"), ValueError("bad"), IntegrityError("INSERT", {}, Exception("dup"))],
+)
+async def test_permanent_failure_is_dropped_without_waiting_and_next_message_is_processed(
+    error: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    repo = PermanentFailureRepository(error)
+    items = [message(payload()), message(payload(recorded_at="2026-01-01T12:00:01Z"))]
+    stop = asyncio.Event()
+    waits: list[float] = []
+
+    async def fake_wait(_stop: asyncio.Event, seconds: float) -> None:
+        waits.append(seconds)
+
+    with caplog.at_level(logging.ERROR):
+        await asyncio.wait_for(
+            consumer.run_consumer(
+                make_settings(),
+                IngestReading(repo),
+                stop,
+                client_factory=lambda s: FakeClient("ok", items, stop),
+                wait=fake_wait,
+            ),
+            timeout=3,
+        )
+    assert waits == []
+    assert repo.attempts == 2  # poison message attempted once, never retried
+    assert [r.recorded_at.second for r in repo.readings] == [1]
+    [record] = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert record.exc_info is not None
+    assert TOPIC in record.getMessage()
+    assert "payload=" in record.getMessage()
+
+
+async def test_payload_preview_in_drop_log_is_truncated(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    repo = PermanentFailureRepository(RuntimeError("boom"))
+    huge = payload() + b" " * 5000  # valid JSON padded with whitespace
+    with caplog.at_level(logging.ERROR):
+        await run_with_flaky_repo_like(repo, [message(huge)])
+    [record] = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert "payload=" in record.getMessage()
+    assert len(record.getMessage()) < 1000
+
+
+async def run_with_flaky_repo_like(repo: InMemoryReadingRepository, items: list[Any]) -> None:
+    stop = asyncio.Event()
+    await asyncio.wait_for(
+        consumer.run_consumer(
+            make_settings(),
+            IngestReading(repo),
+            stop,
+            client_factory=lambda s: FakeClient("ok", items, stop),
+            wait=lambda _s, _t: asyncio.sleep(0),
+        ),
+        timeout=3,
+    )

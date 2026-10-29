@@ -243,5 +243,17 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   - SUGGESTION `R3-mqtt-topic-env-silently-ignored`: `MQTT_TOPIC` se ignora en silencio y el prefijo no se valida.
   - SUGGESTION `R3-integration-fixed-client-id-concurrent-runs`: id fijo de cliente en tests de integración.
 
+- [x] T7.2 — Seguimiento de la revisión T7.1 (ruta delegada, escritor): `is_transient(exc)` —
+  errores de conectividad (`OperationalError`, `InterfaceError`, `DBAPIError` invalidado, `OSError`,
+  `TimeoutError`) se reintentan en el lugar; el resto se loguea en ERROR con payload truncado y se
+  descarta sin espera. README deduplicado con una única semántica de entrega. `mqtt_topic_prefix`
+  validado al cargar y `MQTT_TOPIC` rechazado explícitamente. Id de cliente único por corrida en los
+  tests de integración. Evidencia TDD: RED `AttributeError ... is_transient` ×10 y `assert [1.0] == []`
+  ×3; config 8 fallos (`DID NOT RAISE`); caracterización declarada (2 de config, truncado sin RED
+  propio, fixture de integración sin RED). GREEN `163 passed`; unitarios `144 passed`. ruff/format/mypy
+  OK. Spot check del orquestador: 163 passed.
+  Consecuencia operativa documentada: si falta la tabla (migración no aplicada) el error es permanente
+  y los mensajes se descartan con ERROR; hay que correr `alembic upgrade head` antes del ingestor.
+
 ## Próximo paso
-Decidir el seguimiento de T7.1 y cerrar la feature (PR, decisión del usuario).
+Revisión del tramo T7.2 y PR `feat/backend-foundation` → `main`.

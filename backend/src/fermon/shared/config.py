@@ -1,4 +1,10 @@
+import os
+from typing import Self
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+_FORBIDDEN_PREFIX_CHARS = ("+", "#", "/")
 
 
 class Settings(BaseSettings):
@@ -8,6 +14,29 @@ class Settings(BaseSettings):
     mqtt_client_id: str = "fermon-ingestor"
     mqtt_topic_prefix: str = "fermon"
     mqtt_clean_session: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_mqtt_topic_env(cls, data: object) -> object:
+        # ``mqtt_topic`` is derived from the prefix, so a configured MQTT_TOPIC would otherwise
+        # be ignored silently (pydantic-settings only reads env vars that match a field).
+        if any(name.upper() == "MQTT_TOPIC" for name in os.environ):
+            raise ValueError("MQTT_TOPIC is not supported; set MQTT_TOPIC_PREFIX instead")
+        return data
+
+    @model_validator(mode="after")
+    def _validate_topic_prefix(self) -> Self:
+        prefix = self.mqtt_topic_prefix
+        if (
+            not prefix
+            or prefix != prefix.strip()
+            or any(char in prefix for char in _FORBIDDEN_PREFIX_CHARS)
+        ):
+            raise ValueError(
+                "MQTT_TOPIC_PREFIX must be a single non-empty topic level without "
+                "'+', '#', '/' or surrounding whitespace"
+            )
+        return self
 
     @property
     def mqtt_topic(self) -> str:

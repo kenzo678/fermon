@@ -1,0 +1,27 @@
+import pytest
+from pydantic import ValidationError
+
+from fermon.shared.config import Settings
+
+
+def test_default_topic_is_derived_from_the_prefix() -> None:
+    assert Settings(mqtt_topic_prefix="fermon").mqtt_topic == "fermon/tanks/+/readings"
+
+
+@pytest.mark.parametrize(
+    "prefix", ["", " ", "fer+mon", "fermon#", "fermon/dev", " fermon", "fermon "]
+)
+def test_invalid_topic_prefix_is_rejected(prefix: str) -> None:
+    with pytest.raises(ValidationError, match="MQTT_TOPIC_PREFIX"):
+        Settings(mqtt_topic_prefix=prefix)
+
+
+def test_configured_mqtt_topic_env_var_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MQTT_TOPIC", "custom/topic")
+    with pytest.raises(ValidationError, match="MQTT_TOPIC_PREFIX"):
+        Settings()
+
+
+def test_mqtt_topic_prefix_env_var_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MQTT_TOPIC_PREFIX", "plant-a")
+    assert Settings().mqtt_topic == "plant-a/tanks/+/readings"

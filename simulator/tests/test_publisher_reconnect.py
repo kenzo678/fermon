@@ -9,8 +9,15 @@ from fermon_simulator.config import Settings
 
 
 def make_settings() -> Settings:
+    # Pin every knob the scripts depend on so ambient SIM_* variables cannot change the batches.
     return Settings(  # type: ignore[call-arg]
-        _env_file=None, tanks="tank-1:ale", seed=1, tick_interval_seconds=0.01
+        _env_file=None,
+        tanks="tank-1:ale",
+        seed=1,
+        tick_interval_seconds=0.01,
+        dropout_rate=0.0,
+        spike_rate=0.0,
+        disconnect_rate=0.0,
     )
 
 
@@ -55,6 +62,8 @@ async def run_script(outcomes: list[str]) -> list[float]:
 
     async def fake_wait(_stop: asyncio.Event, seconds: float) -> None:
         waits.append(seconds)
+        # Yield so the wait_for timeout guard can still interrupt a runaway publisher.
+        await asyncio.sleep(0)
 
     await asyncio.wait_for(
         publisher.run_publisher(make_settings(), stop, client_factory=factory, wait=fake_wait),

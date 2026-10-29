@@ -187,5 +187,14 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   caracterización (sin off-by-one). GREEN `71 passed` (con broker); unitarios `70 passed`.
   ruff/format/mypy OK. Spot check del orquestador: 71 passed.
 
+- Revisión RDD de T6.1 (`8ae791c` → `947aaea`, 198 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Nuevo límite revisado: `947aaea`. Corregido inline (solo tests):
+  WARNING `R3-fake-wait-never-yields` (la espera falsa ahora cede el loop) y SUGGESTION
+  `R3-reconnect-tests-depend-on-ambient-env` (tasas de falla fijadas en 0). Verificado con
+  `SIM_DROPOUT_RATE=1.0 SIM_DISCONNECT_RATE=1.0` en el entorno: 5 passed; suite `71 passed`. No se
+  observó RED previo con ese entorno hostil (no se corrió antes del arreglo).
+  Pendiente sin autorizar: SUGGESTION `R3-disconnect-test-mutates-frozen-config` (el test usa
+  `object.__setattr__` sobre la config del inyector).
+
 ## Próximo paso
 T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.

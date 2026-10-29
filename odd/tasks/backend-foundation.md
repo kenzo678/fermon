@@ -75,6 +75,13 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   (Protocol), `InvalidTimeRangeError`. Fake `InMemoryReadingRepository` en tests. Evidencia TDD:
   RED `ImportError: cannot import name 'ListReadings'`, GREEN `32 passed`. ruff/format/mypy OK.
   Spot check del orquestador: 32 passed.
+- Revisión RDD del tramo T2+T3 (base `8bf864e` → `0314fc9`, 434 líneas, riesgo medio): aprobada
+  por el usuario, **aprobada** y reconocida (autoridad quemada). Nuevo límite revisado: `0314fc9`.
+  Hallazgos no bloqueantes (seguimiento, sin autorizar todavía):
+  - WARNING `R3-list-tank-id-asymmetry`: `ListReadings` no normaliza ni valida `tank_id` como el dominio.
+  - SUGGESTION `R3-non-domain-exceptions-on-bad-types`: tipos inválidos escapan como TypeError/AttributeError.
+  - SUGGESTION `R3-measurement-type-guard-untested`: falta test del guard `isinstance` de `measurement`.
+  - SUGGESTION `R3-tzinfo-none-offset-untested`: falta test de tzinfo con `utcoffset()` None.
 - Política: push a `origin` después de cada commit de tarea (pedido del usuario).
 
 ## Próximo paso

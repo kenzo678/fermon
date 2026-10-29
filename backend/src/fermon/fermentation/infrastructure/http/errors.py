@@ -31,7 +31,9 @@ async def validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
         loc = [str(part) for part in error["loc"]]
         if loc and loc[0] in _LOCATION_KINDS:
             loc = loc[1:]
-        errors.append({"field": ".".join(loc) or None, "message": str(error["msg"])})
+        # A malformed JSON body locates the error by character offset, not by field.
+        field = None if error["type"] == "json_invalid" else ".".join(loc) or None
+        errors.append({"field": field, "message": str(error["msg"])})
     return _unprocessable(errors)
 
 

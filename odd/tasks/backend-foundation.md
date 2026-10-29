@@ -153,5 +153,10 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   caracterización (ya pasaba: el engine es lazy). GREEN `99 passed`; unitarios `82 passed,
   17 deselected`. ruff/format/mypy OK. Spot check del orquestador: 99 passed.
 
+- Revisión RDD de T5.1 (`b85daea` → `63cacb7`, 320 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Nuevo límite revisado: `63cacb7`. Única sugerencia
+  `R3-validation-handler-unproved-for-non-field-locs` (JSON malformado reportaba el offset como
+  `field`) corregida inline: RED `assert '12' is None`, GREEN `100 passed`, ruff/format/mypy OK.
+
 ## Próximo paso
 T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.

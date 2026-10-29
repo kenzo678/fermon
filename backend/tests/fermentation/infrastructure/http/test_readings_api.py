@@ -217,3 +217,13 @@ async def test_get_blank_tank_id_returns_422_with_field(client: AsyncClient) -> 
     assert response.status_code == 422
     (error,) = response.json()["detail"]
     assert error["field"] == "tank_id"
+
+
+async def test_post_malformed_json_reports_no_field(client: AsyncClient) -> None:
+    response = await client.post(
+        "/readings", content=b'{"tank_id": ', headers={"content-type": "application/json"}
+    )
+
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["field"] is None

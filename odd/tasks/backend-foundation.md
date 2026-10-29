@@ -171,5 +171,12 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   6 mensajes esperados (2 tanques × 3 mediciones). Spot check del orquestador: 53 passed.
   Nota: `2c0a372` (fix JSON malformado) queda fuera de los tramos revisados, cubierto por TDD.
 
+- Revisión RDD de T6 (`293e177` → `8ae791c`, 887 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Nuevo límite revisado: `8ae791c`. Hallazgos no bloqueantes
+  (seguimiento, sin autorizar todavía):
+  - WARNING `R3-tick-interval-unvalidated`: `tick_interval_seconds` acepta 0 o negativos (inunda el broker).
+  - WARNING `R3-reconnect-backoff-unproved`: no hay test del camino de reconexión con backoff.
+  - SUGGESTION `R3-disconnect-window-length-unproved`: no se prueba la duración exacta de la ventana de desconexión.
+
 ## Próximo paso
 T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.

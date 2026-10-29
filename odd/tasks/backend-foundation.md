@@ -57,6 +57,12 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   Notas: sin BuildKit en el host, por eso no se usa `--mount=type=cache`; el `.venv` vive en
   un volumen nombrado `api-venv` (tras cambiar dependencias: `docker compose build api` y
   `docker volume rm fermon_api-venv`). ~200 líneas de autor (sin lock).
+- Commits T1: `b86a01f` (scaffold) + commit siguiente con `backend/uv.lock` (generado).
+  El commit original con el lock superó el presupuesto de contexto del revisor
+  (`lens_context_budget_exceeded`), por eso se partió. Revisión RDD de `b86a01f`: riesgo medio,
+  aprobada por el usuario; un BLOCKER (`R3-missing-uv-lock`) causado por la partición misma,
+  que se resuelve con el commit del lock (no entraba en la corrección acotada de 135 líneas).
+  Revisión descartada con autorización del usuario (`operator_disposition`, actor kenzo678).
 
 ## Próximo paso
 T2 — Dominio `Reading` / `MeasurementType` con TDD.

@@ -1,6 +1,6 @@
 import dataclasses
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
 
 import pytest
@@ -111,3 +111,51 @@ def test_reading_is_immutable() -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         reading.value = 1.0  # type: ignore[misc]
+
+
+class NoOffsetTz(tzinfo):
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:
+        return None
+
+    def dst(self, dt: datetime | None) -> timedelta | None:
+        return None
+
+    def tzname(self, dt: datetime | None) -> str | None:
+        return None
+
+
+def test_tzinfo_without_offset_rejected() -> None:
+    with pytest.raises(InvalidReadingError, match="recorded_at"):
+        make(recorded_at=datetime(2026, 1, 1, 12, 0, tzinfo=NoOffsetTz()))
+
+
+def test_raw_string_measurement_rejected() -> None:
+    with pytest.raises(InvalidReadingError) as exc:
+        make(measurement="temperature")
+
+    assert exc.value.field == "measurement"
+
+
+@pytest.mark.parametrize(
+    ("field", "bad"),
+    [
+        ("tank_id", None),
+        ("tank_id", 5),
+        ("sensor_id", None),
+        ("sensor_id", b"s"),
+        ("value", "18.5"),
+        ("value", None),
+        ("value", True),
+        ("recorded_at", "2026-01-01T12:00:00+00:00"),
+        ("recorded_at", None),
+    ],
+)
+def test_wrong_types_raise_domain_error(field: str, bad: Any) -> None:
+    with pytest.raises(InvalidReadingError) as exc:
+        make(**{field: bad})
+
+    assert exc.value.field == field
+
+
+def test_int_value_accepted() -> None:
+    assert make(value=18).value == 18

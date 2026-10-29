@@ -2,6 +2,14 @@ class DomainError(Exception):
     """Base class for all domain rule violations."""
 
 
+class InvalidIdentifierError(DomainError):
+    """Raised when an identifier (tank, sensor, ...) is not a non-blank string."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(f"invalid {field}: {message}")
+        self.field = field
+
+
 class InvalidReadingError(DomainError):
     """Raised when a reading violates a domain invariant."""
 

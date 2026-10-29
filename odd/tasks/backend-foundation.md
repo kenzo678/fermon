@@ -40,6 +40,9 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   Ruta: delegado (escritor) — dispara el trigger de 2+ archivos no triviales.
 - [x] T2 — Dominio: `Reading` y `MeasurementType` con validación por tipo de medición (TDD).
 - [x] T3 — Caso de uso `ingest_reading` + puerto `ReadingRepository` (TDD con repo fake).
+- [x] T3.1 — Seguimiento de la revisión T2+T3: normalización compartida de ids (`normalize_id`,
+  `InvalidIdentifierError`), `ListReadings` limpia/valida `tank_id`, errores de dominio para tipos
+  inválidos, tests del guard de `measurement` y de tzinfo sin offset. Ruta: delegado (escritor).
 - [ ] T4 — Adaptador SQLAlchemy/Timescale + migración Alembic con hypertable (integración).
 - [ ] T5 — `POST /readings` de ingesta + `GET /tanks/{tank_id}/readings` por rango de tiempo.
 - [ ] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
@@ -82,6 +85,10 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   - SUGGESTION `R3-non-domain-exceptions-on-bad-types`: tipos inválidos escapan como TypeError/AttributeError.
   - SUGGESTION `R3-measurement-type-guard-untested`: falta test del guard `isinstance` de `measurement`.
   - SUGGESTION `R3-tzinfo-none-offset-untested`: falta test de tzinfo con `utcoffset()` None.
+- T3.1 completada. Evidencia TDD: RED 9 failed (`test_wrong_types_raise_domain_error`) +
+  `ImportError: InvalidIdentifierError` en tests de ListReadings; los tests de los ítems 3 y 4 son
+  de caracterización (pasaron de entrada, el comportamiento ya existía). GREEN `49 passed`.
+  ruff/format/mypy OK. Spot check del orquestador: 49 passed. Los 4 hallazgos quedan resueltos.
 - Política: push a `origin` después de cada commit de tarea (pedido del usuario).
 
 ## Próximo paso

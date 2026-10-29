@@ -42,6 +42,29 @@ services:
       mosquitto:
         condition: service_started
 
+  simulator:
+    profiles: ["simulator"]
+    build:
+      context: ./simulator
+      target: dev
+    environment:
+      SIM_MQTT_HOST: ${SIM_MQTT_HOST:-mosquitto}
+      SIM_MQTT_PORT: ${SIM_MQTT_PORT:-1883}
+      SIM_TANKS: ${SIM_TANKS:-tank-1:ale,tank-2:lager}
+      SIM_TICK_INTERVAL_SECONDS: ${SIM_TICK_INTERVAL_SECONDS:-1}
+      SIM_ACCELERATION: ${SIM_ACCELERATION:-600}
+      SIM_SEED: ${SIM_SEED:-}
+      SIM_DROPOUT_RATE: ${SIM_DROPOUT_RATE:-0.02}
+      SIM_SPIKE_RATE: ${SIM_SPIKE_RATE:-0.01}
+      SIM_DISCONNECT_RATE: ${SIM_DISCONNECT_RATE:-0.005}
+    volumes:
+      - ./simulator:/app
+      - simulator-venv:/app/.venv
+    depends_on:
+      mosquitto:
+        condition: service_started
+
 volumes:
   timescale-data:
   api-venv:
+  simulator-venv:

@@ -52,7 +52,7 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   `IngestResult`; 201 creada / 200 ya existía con el primer valor), formato 422 único
   `{"detail":[{"field","message"}]}` también para errores de Pydantic, test de health con lifespan
   real, timestamps de respuesta normalizados a UTC. Ruta: delegado (escritor).
-- [ ] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
+- [x] T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
 - [ ] T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.
 
 ## Criterios de aceptación
@@ -158,5 +158,18 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   `R3-validation-handler-unproved-for-non-field-locs` (JSON malformado reportaba el offset como
   `field`) corregida inline: RED `assert '12' is None`, GREEN `100 passed`, ruff/format/mypy OK.
 
+- T6 completada (ruta delegada, escritor). Proyecto `simulator/` aparte; dependencias en commit
+  propio `293e177` (aiomqtt 2.5.1). Núcleo puro: `profiles` (ABV sigmoide normalizada, presión ∝
+  actividad, temperatura con pico exotérmico; presets ale 19 °C/5.0 %/96 h y lager 10 °C/5.2 %/240 h),
+  `faults` (ruido, pérdida, picos fuera de rango, desconexiones; semilla reproducible),
+  `messages` (contrato exacto), `clock` (aceleración solo del tiempo de fermentación; `recorded_at`
+  real UTC), `config` (`SIM_*`), `publisher` (aiomqtt QoS 1, reconexión con backoff 1–30 s).
+  Servicio Compose con perfil `simulator`. Evidencia TDD: RED 7 errores de colección
+  (`ModuleNotFoundError fermon_simulator.config`), GREEN `53 passed` (incl. integración con
+  mosquitto); un fallo intermedio por contaminación de `SIM_*` del entorno, corregido en el test.
+  ruff/format/mypy OK; backend sin cambios (83 unitarios OK). Smoke: `mosquitto_sub` recibió los
+  6 mensajes esperados (2 tanques × 3 mediciones). Spot check del orquestador: 53 passed.
+  Nota: `2c0a372` (fix JSON malformado) queda fuera de los tramos revisados, cubierto por TDD.
+
 ## Próximo paso
-T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.
+T7 — Consumidor MQTT que valida el contrato y llama a `ingest_reading`.

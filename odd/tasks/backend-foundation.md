@@ -136,5 +136,13 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   (RED observado en test nuevo, GREEN con `reason` en los errores). Spot check final: 93 passed,
   ruff/format/mypy OK. Sin probar contra el stack dev: POST con fecha naive (solo unitario).
 
+- Revisión RDD del tramo T4.1+T5 (`01b8108` → `b85daea`, 653 líneas, medio): aprobada por el
+  usuario, **aprobada** y reconocida. Nuevo límite revisado: `b85daea`. Hallazgos no bloqueantes
+  (seguimiento, sin autorizar todavía):
+  - WARNING `R3-two-incompatible-422-shapes`: errores de dominio y de Pydantic devuelven 422 con formas distintas.
+  - WARNING `R3-idempotent-post-response-may-misreport-stored-value`: un POST duplicado con otro valor responde el valor nuevo aunque la base guarda el primero.
+  - SUGGESTION `R3-health-test-skips-lifespan`: el test de health no ejecuta el lifespan.
+  - SUGGESTION `R3-non-utc-offset-roundtrip-unproved`: falta test de ida y vuelta con offset no UTC.
+
 ## Próximo paso
 T6 — Simulador de sensores (`simulator/`) con perfiles de fermentación e inyección de fallas.

@@ -235,5 +235,13 @@ Tópico MQTT `fermon/tanks/{tank_id}/readings`, payload JSON:
   ruff/format/mypy OK en ambos. Smoke: sin descartes de alcohol en el ingestor; GET tank-1 → 108 filas
   (incluye datos del smoke anterior). Spot check del orquestador: 139 y 75 passed.
 
+- Revisión RDD de T7.1 (`cf4f1d3` → `1ea8756`, 480 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Nuevo límite revisado: `1ea8756`. Hallazgos no bloqueantes
+  (seguimiento, sin autorizar todavía):
+  - WARNING `R3-retry-forever-poison-message-stalls-ingestion`: un error permanente en un mensaje bloquea la ingesta para siempre.
+  - WARNING `R3-readme-duplicated-sections-contradict-new-semantics`: el README duplica secciones y se contradice sobre la pérdida de mensajes.
+  - SUGGESTION `R3-mqtt-topic-env-silently-ignored`: `MQTT_TOPIC` se ignora en silencio y el prefijo no se valida.
+  - SUGGESTION `R3-integration-fixed-client-id-concurrent-runs`: id fijo de cliente en tests de integración.
+
 ## Próximo paso
-Revisión del tramo T7.1 y cierre de la feature (PR, decisión del usuario).
+Decidir el seguimiento de T7.1 y cerrar la feature (PR, decisión del usuario).

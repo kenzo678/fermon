@@ -1,9 +1,11 @@
+import logging
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Row, Text, column, select, true, values
+from sqlalchemy import Executable, Row, Text, column, func, select, true, values
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fermon.fermentation.domain import (
@@ -19,6 +21,16 @@ from fermon.fermentation.infrastructure.persistence.tables import (
     readings_1h,
     readings_1m,
 )
+from fermon.fermentation.infrastructure.realtime.payload import READINGS_CHANNEL, encode_reading
+
+logger = logging.getLogger(__name__)
+
+# PostgreSQL rejects NOTIFY payloads of 8000 bytes or more; stay clearly below that.
+MAX_NOTIFY_PAYLOAD_BYTES = 7500
+
+
+def _notify_statement(payload: str) -> Executable:
+    return select(func.pg_notify(READINGS_CHANNEL, payload))
 
 
 class SqlAlchemyReadingRepository:
@@ -42,7 +54,29 @@ class SqlAlchemyReadingRepository:
             .returning(readings.c.tank_id)
         )
         async with self._session_factory() as session, session.begin():
-            return (await session.execute(statement)).first() is not None
+            if (await session.execute(statement)).first() is None:
+                return False
+            await self._notify(session, reading)
+            return True
+
+    async def _notify(self, session: AsyncSession, reading: Reading) -> None:
+        """Best-effort realtime signal; it must never cost the caller a stored reading.
+
+        Queued in the inserting transaction: delivered to listeners only on commit, and never
+        for a duplicate or a rolled-back insert. A SAVEPOINT confines a NOTIFY error to the
+        NOTIFY, so the insert still commits.
+        """
+        payload = encode_reading(reading)
+        if len(payload.encode()) > MAX_NOTIFY_PAYLOAD_BYTES:
+            logger.warning(
+                "skipping realtime notify: payload exceeds %d bytes", MAX_NOTIFY_PAYLOAD_BYTES
+            )
+            return
+        try:
+            async with session.begin_nested():
+                await session.execute(_notify_statement(payload))
+        except SQLAlchemyError:
+            logger.warning("realtime notify failed; the reading was stored", exc_info=True)
 
     async def get(
         self, tank_id: str, sensor_id: str, measurement: MeasurementType, recorded_at: datetime

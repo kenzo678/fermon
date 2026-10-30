@@ -34,8 +34,8 @@ alertas, autenticación, retención (features posteriores), frontend.
 - [x] T1 — CORS + tanques: tabla `tanks` con migración, auto-registro en la ingesta,
   `GET /tanks` (con última lectura por medición) y `GET /tanks/{tank_id}`.
 - [x] T2 — Series agregadas: continuous aggregates 1m/1h + `GET /tanks/{tank_id}/readings/aggregated`.
-- [ ] T3 — Tiempo real: NOTIFY desde el ingestor, LISTEN en la API, WebSocket `/ws/tanks/{tank_id}`.
-- [ ] T4 — PR.
+- [x] T3 — Tiempo real: NOTIFY desde el ingestor, LISTEN en la API, WebSocket `/ws/tanks/{tank_id}`.
+- [x] T4 — PR.
 
 ## Criterios de aceptación
 - Con el simulador corriendo, `GET /tanks` lista tank-1 y tank-2 con sus últimas lecturas.
@@ -102,5 +102,61 @@ alertas, autenticación, retención (features posteriores), frontend.
   en TimescaleDB 2.31 los jobs de refresh reportan el nombre de la vista, no la hypertable interna.
   `251 passed`; ruff/format OK.
 
+- Revisión RDD conjunta de T1+T2 (`d4eeea9` → `3c81e9d`, 2201 líneas, medio; pedida por el hook tras
+  el amend de T2): aprobada por el usuario, **aprobada** y reconocida. Sugerencias no bloqueantes
+  (trabajo futuro, solo tests):
+  - `R3-ensure-failure-path-unproved`: falta test de falla transitoria en el upsert del tanque durante la ingesta.
+  - `R3-duplicate-measurement-param-untested`: falta test HTTP con `measurement` repetido en el endpoint agregado.
+- T3 completada (ruta delegada, un escritor). `pg_notify('fermon_readings', ...)` en la misma
+  transacción del insert, solo si se insertó (HTTP y MQTT notifican). `infrastructure/realtime`:
+  `ReadingBroadcaster` (una conexión asyncpg con `add_listener`, reconexión 1→30 s, cola por cliente
+  de 100 con descarte del más viejo, payload malformado descartado con WARNING), protocolo
+  `ReadingFeed`. WebSocket `/ws/tanks/{tank_id}`: 4404 tanque inexistente, 4403 origen no permitido
+  (CORS no cubre WebSockets; sin `Origin` se permite). Brecha documentada: notificaciones durante una
+  desconexión del listener se pierden; el cliente rellena vía REST. Evidencia TDD: RED
+  `ModuleNotFoundError ... realtime`, `ImportError ... get_reading_feed`, 3 integración con
+  `TimeoutError` (nada notificado); `test_lifespan.py` de caracterización. GREEN `281 passed`;
+  unitarios `240 passed`; ruff/format/mypy OK. Smoke dev: 5 mensajes recibidos por WebSocket,
+  `tank-nope` → 4404, origen ajeno → HTTP 403. Spot check del orquestador: 281 passed.
+
+- Revisión RDD de T3 (`3c81e9d` → `07d154a`, 907 líneas, medio) y de la rama completa (`d4eeea9` →
+  `07d154a`, 3100 líneas, pedida por el hook): ambas aprobadas por el usuario, **aprobadas** y
+  reconocidas. Hallazgos corregidos dentro de T3 antes del push (ruta delegada):
+  - WARNING listener muere en silencio → `except Exception` con ERROR + backoff; `stop()` no re-lanza.
+  - WARNING lookup de tanque con falla de infraestructura → cierre 1011 `internal error` (tabla de
+    códigos 1011/4403/4404 en README).
+  - Conexión medio caída → `SELECT 1` cada 30 s con timeout de 5 s; si falla, reconecta.
+  - NOTIFY nunca tumba la ingesta → límite de 7500 bytes (si se excede, se omite con WARNING) y
+    `pg_notify` dentro de un SAVEPOINT (si falla, se loguea y la lectura se guarda igual).
+  - Tests deterministas: evento `ready` del broadcaster, sincronización del contador de suscriptores,
+    y tests de orden de commit (2 de caracterización de la garantía de PostgreSQL + 1 del camino del
+    repositorio: `insert → notify → commit` en una misma conexión).
+  Evidencia TDD: RED `ValueError('boom')` mataba la tarea, `ConnectionError` escapaba de la ruta,
+  `TypeError health_interval`, `AttributeError MAX_NOTIFY_PAYLOAD_BYTES`, `AttributeError ready`.
+  GREEN `292 passed` (3 corridas seguidas); unitarios `246 passed`; ruff/format/mypy OK. Spot check
+  del orquestador: 292 passed y WebSocket en vivo recibiendo lecturas de tank-1.
+- Entrega: T3 enmendado (sin push previo) y push; PR.
+
+- Revisión RDD del T3 final (`82fb4b1`, 1223 líneas): aprobada por el usuario, **aprobada** y
+  reconocida. Corregido dentro de T3 (amend + `push --force-with-lease` autorizado por el usuario):
+  - WARNING `R3-stop-blocks-on-inflight-connect`: `stop()` espera `stop_grace` (1 s) y luego cancela.
+  - WARNING `R3-4403-not-observable-pre-accept`: se acepta y se cierra con 4403 para que el navegador
+    lo vea; README corregido. Smoke con cliente real: `close 4403 origin not allowed`.
+  - SUGGESTION `R3-half-open-close-unbounded`: `close()` con timeout (5 s) y `terminate()` de respaldo.
+  RED: 3 failed (2 por parámetros nuevos inexistentes, sin reproducir el cuelgue en sí; 1 de
+  comportamiento del 4403). GREEN `294 passed` (2 corridas); ruff/format/mypy OK.
+- Revisión RDD de esas correcciones (113 líneas): aprobada por el usuario, **aprobada** y reconocida.
+  WARNING `R3-stop-cancel-skips-terminate-fallback` corregido inline: si `stop()` cancela un `close()`
+  colgado, igual se llama a `terminate()` antes de propagar la cancelación. RED `assert False`
+  (`terminated`), GREEN `295 passed`.
+- La revisión de la rama completa (3414 líneas) no corrió: `lens_context_budget_exceeded`; cada
+  commit se revisó por separado. Por acuerdo con el usuario no se abre otra ronda.
+
+## Trabajo futuro
+- Test de falla transitoria en el upsert del tanque durante la ingesta (`R3-ensure-failure-path-unproved`).
+- Test HTTP con `measurement` repetido en el endpoint agregado (`R3-duplicate-measurement-param-untested`).
+- Heredados: espera del esquema no cancelable con `engine.connect()` colgado; test BEHIND salteado.
+- Notificaciones perdidas mientras el listener está desconectado (el cliente rellena por REST).
+
 ## Próximo paso
-T3 — tiempo real (WebSocket).
+PR `feat/dashboard-ready-backend` → `main` (merge: decisión del usuario).

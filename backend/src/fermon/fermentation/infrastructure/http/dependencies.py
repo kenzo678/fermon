@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends
+from fastapi.requests import HTTPConnection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fermon.fermentation.application.get_tank import GetTank
@@ -12,11 +13,17 @@ from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyReadingRepository,
     SqlAlchemyTankRepository,
 )
+from fermon.fermentation.infrastructure.realtime import ReadingFeed
 
 
-def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
-    factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
+def get_session_factory(connection: HTTPConnection) -> async_sessionmaker[AsyncSession]:
+    factory: async_sessionmaker[AsyncSession] = connection.app.state.session_factory
     return factory
+
+
+def get_reading_feed(connection: HTTPConnection) -> ReadingFeed:
+    feed: ReadingFeed = connection.app.state.reading_feed
+    return feed
 
 
 SessionFactory = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
@@ -54,4 +61,5 @@ IngestReadingDep = Annotated[IngestReading, Depends(get_ingest_reading)]
 ListReadingsDep = Annotated[ListReadings, Depends(get_list_readings)]
 ListTanksDep = Annotated[ListTanks, Depends(get_list_tanks)]
 GetTankDep = Annotated[GetTank, Depends(get_get_tank)]
+ReadingFeedDep = Annotated[ReadingFeed, Depends(get_reading_feed)]
 ListAggregatedReadingsDep = Annotated[ListAggregatedReadings, Depends(get_list_aggregated_readings)]

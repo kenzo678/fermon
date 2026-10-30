@@ -233,3 +233,60 @@ docker compose exec timescaledb psql -U fermon -d fermon -c \
 docker compose exec timescaledb psql -U fermon -d fermon -c \
   "CALL refresh_continuous_aggregate('readings_1h', '2026-01-01', '2026-01-02')"
 ```
+
+## Tiempo real (WebSocket)
+
+`ws://localhost:8000/ws/tanks/{tank_id}` envía cada lectura nueva del tanque como un mensaje de
+texto JSON, con la misma forma que `ReadingOut` de la API REST (instantes en UTC):
+
+```json
+{"tank_id": "tank-1", "sensor_id": "tank-1-temp", "measurement": "temperature",
+ "value": 19.5, "unit": "celsius", "recorded_at": "2026-01-01T12:05:00Z"}
+```
+
+Cómo funciona: al guardar una lectura **nueva** (no un duplicado), el adaptador de persistencia
+ejecuta `pg_notify('fermon_readings', <json>)` en la misma transacción del `INSERT`. PostgreSQL
+entrega la notificación solo al confirmar (`COMMIT`), así que el panel nunca ve datos que no estén
+en la base. Tanto `POST /readings` como el ingestor MQTT pasan por ese adaptador. La API mantiene
+una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscritos a ese tanque.
+
+- Tanque desconocido o `tank_id` en blanco: el servidor acepta y cierra de inmediato con el código
+  `4404` y un motivo. El `tank_id` se normaliza (espacios) igual que en REST.
+- Códigos de cierre del WebSocket:
+
+  | Código | Significado |
+  | ------ | ----------- |
+  | `1011` | Error interno: falló la consulta del tanque (p. ej. base de datos caída). El servidor acepta y cierra con el motivo `internal error` y registra el error. Reintente más tarde. |
+  | `4403` | Origen no permitido (ver abajo). |
+  | `4404` | Tanque desconocido o `tank_id` en blanco. |
+
+- Origen no permitido: si el encabezado `Origin` no está en `CORS_ORIGINS` se acepta el
+  apretón de manos y se cierra de inmediato con `4403` y un motivo, para que el navegador lo
+  observe (CORS no cubre WebSockets, por eso se valida aparte). Los clientes sin
+  `Origin` (scripts, `websocat`) se aceptan: la restricción protege contra páginas de otros sitios,
+  no es autenticación.
+- Semántica de entrega: transmisión **en vivo y de mejor esfuerzo**, sin repetición. Las lecturas
+  guardadas mientras el cliente estaba desconectado, o mientras la API había perdido su conexión de
+  escucha (se reconecta sola con espera de 1 a 30 s), no se reenvían. Al (re)conectar, el cliente
+  debe completar el hueco con `GET /tanks/{tank_id}/readings` o con los agregados.
+- Cliente lento: cada suscriptor tiene una cola acotada de 100 mensajes; si se llena se descarta el
+  mensaje **más antiguo** de ese cliente (nunca bloquea a los demás ni al listener).
+- Los mensajes que envía el cliente se ignoran. `/health` funciona aunque la base no esté disponible.
+- Límite de PostgreSQL: el payload de `NOTIFY` no puede superar 8000 bytes; una lectura ocupa unos
+  pocos cientos. Si superara los 7500 bytes se omite la notificación (con una advertencia en el
+  log) y la lectura se guarda igualmente.
+- El tiempo real nunca afecta a la ingesta: el `pg_notify` va dentro de un `SAVEPOINT`, de modo que
+  un error de `NOTIFY` se registra y se descarta sin revertir el `INSERT`.
+- Conexión de escucha: ante cualquier error inesperado se registra con traza y se reintenta con la
+  misma espera (1 a 30 s). Además, cada 30 s se ejecuta un `SELECT 1` con tiempo límite de 5 s para
+  detectar conexiones medio abiertas; si falla, se reconecta.
+
+```sh
+docker compose exec api uv run python -c "
+import asyncio, websockets
+async def main():
+    async with websockets.connect('ws://localhost:8000/ws/tanks/tank-1') as ws:
+        async for message in ws:
+            print(message)
+asyncio.run(main())"
+```

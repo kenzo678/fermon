@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from fermon.fermentation.application.ports import ReadingRepository
+from fermon.fermentation.application.ports import ReadingRepository, TankRepository
 from fermon.fermentation.domain import InvalidReadingError, MeasurementType, Reading
 
 
@@ -24,8 +24,9 @@ class IngestResult:
 
 
 class IngestReading:
-    def __init__(self, repository: ReadingRepository) -> None:
+    def __init__(self, repository: ReadingRepository, tanks: TankRepository) -> None:
         self._repository = repository
+        self._tanks = tanks
 
     async def execute(self, command: IngestReadingCommand) -> IngestResult:
         try:
@@ -43,6 +44,9 @@ class IngestReading:
             unit=command.unit,
             recorded_at=command.recorded_at,
         )
+        # Register first: a stored reading then never lacks its tank. Idempotent, and only
+        # reached for a valid reading, so a rejected message never creates a tank.
+        await self._tanks.ensure(reading.tank_id, reading.recorded_at)
         if await self._repository.add(reading):
             return IngestResult(reading=reading, created=True)
 

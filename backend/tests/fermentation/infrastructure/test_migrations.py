@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from alembic import command
@@ -55,5 +56,81 @@ async def test_downgrade_then_upgrade_restores_the_hypertable(migrated_database_
         assert name == "readings"
     finally:
         # Leave the shared session database migrated for the other tests.
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_tanks_migration_backfills_tanks_from_existing_readings(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    insert = text(
+        "INSERT INTO readings (tank_id, sensor_id, measurement, value, unit, recorded_at) "
+        "VALUES (:tank, 's', 'temperature', 18, 'celsius', :at)"
+    )
+    try:
+        await asyncio.to_thread(command.downgrade, config, "0001")
+        async with engine.begin() as conn:
+            assert await conn.scalar(text("SELECT to_regclass('public.tanks')")) is None
+            await conn.execute(text("TRUNCATE readings"))
+            for tank, at in [
+                ("tank-b", datetime(2026, 1, 2, tzinfo=UTC)),
+                ("tank-a", datetime(2026, 1, 3, tzinfo=UTC)),
+                ("tank-a", datetime(2026, 1, 1, tzinfo=UTC)),
+            ]:
+                await conn.execute(insert, {"tank": tank, "at": at})
+
+        await asyncio.to_thread(command.upgrade, config, "head")
+
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text("SELECT id, display_name, first_seen_at FROM tanks ORDER BY id")
+                )
+            ).all()
+        assert [(r.id, r.display_name, r.first_seen_at) for r in rows] == [
+            ("tank-a", None, datetime(2026, 1, 1, tzinfo=UTC)),
+            ("tank-b", None, datetime(2026, 1, 2, tzinfo=UTC)),
+        ]
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        async with engine.begin() as conn:
+            await conn.execute(text("TRUNCATE readings, tanks"))
+        await engine.dispose()
+
+
+async def test_aggregates_are_real_time_with_refresh_policies_and_are_dropped_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    views = text(
+        "SELECT view_name, materialized_only FROM timescaledb_information.continuous_aggregates "
+        "ORDER BY view_name"
+    )
+    # In TimescaleDB 2.31 the refresh jobs report the continuous aggregate's view name.
+    policies = text(
+        "SELECT hypertable_name, config->>'start_offset', config->>'end_offset', schedule_interval "
+        "FROM timescaledb_information.jobs WHERE proc_name = 'policy_refresh_continuous_aggregate' "
+        "ORDER BY hypertable_name"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert [tuple(r) for r in await conn.execute(views)] == [
+                ("readings_1h", False),
+                ("readings_1m", False),
+            ]
+            assert [tuple(r) for r in await conn.execute(policies)] == [
+                ("readings_1h", "3 days", "01:00:00", timedelta(minutes=30)),
+                ("readings_1m", "02:00:00", "00:01:00", timedelta(minutes=1)),
+            ]
+
+        await asyncio.to_thread(command.downgrade, config, "0002")
+        async with engine.connect() as conn:
+            assert list(await conn.execute(views)) == []
+            assert list(await conn.execute(policies)) == []
+            assert await conn.scalar(text("SELECT to_regclass('public.readings')")) is not None
+    finally:
         await asyncio.to_thread(command.upgrade, config, "head")
         await engine.dispose()

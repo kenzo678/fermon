@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from fermon.fermentation.application import IngestReading
 from fermon.fermentation.infrastructure.mqtt import run_consumer
-from fermon.fermentation.infrastructure.persistence import SqlAlchemyReadingRepository
+from fermon.fermentation.infrastructure.persistence import (
+    SqlAlchemyReadingRepository,
+    SqlAlchemyTankRepository,
+)
 from fermon.shared.config import Settings
 
 pytestmark = pytest.mark.integration
@@ -36,8 +39,9 @@ async def running_consumer(engine: AsyncEngine) -> AsyncIterator[Settings]:
         mqtt_topic_prefix=PREFIX,
         mqtt_clean_session=True,
     )
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
     ingest = IngestReading(
-        SqlAlchemyReadingRepository(async_sessionmaker(engine, expire_on_commit=False))
+        SqlAlchemyReadingRepository(sessions), SqlAlchemyTankRepository(sessions)
     )
     stop = asyncio.Event()
     ready = asyncio.Event()

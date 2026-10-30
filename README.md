@@ -68,7 +68,7 @@ Para una señal limpia, poner las tres tasas en `0` (y el ruido `SIM_*_NOISE_STD
 ## Flujo de punta a punta
 
 ```
-simulador --MQTT (QoS 1)--> mosquitto --> ingestor --> TimescaleDB <-- API (GET /tanks/{id}/readings)
+simulador --MQTT (QoS 1)--> mosquitto --> ingestor --> TimescaleDB <-- API (GET /tanks, /tanks/{id}/readings)
 ```
 
 El `ingestor` es un proceso aparte del API (`python -m fermon.ingestor`, servicio `ingestor` de
@@ -134,3 +134,159 @@ curl "localhost:8000/tanks/tank-1/readings?start=2026-01-01T00:00:00Z&end=2027-0
 `start` y `end` son instantes ISO-8601 con zona horaria; el rango es `[start, end)`. Aplicar las
 migraciones antes de publicar: sin la tabla, cada mensaje falla con un error permanente y se
 descarta con un ERROR en el log (ver la semántica de entrega anterior).
+
+## Tanques y CORS
+
+Los tanques se registran solos: la primera lectura válida de un tanque lo crea en la tabla `tanks`
+(`id`, `display_name` opcional, `first_seen_at`). La migración `0002` crea la tabla y la rellena con
+los tanques que ya tenían lecturas. No hay clave foránea desde `readings` (es una hypertable); la
+ingesta registra el tanque antes de guardar la lectura.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /tanks` | Lista de tanques ordenada por `id`, cada uno con su última lectura por medición |
+| `GET /tanks/{tank_id}` | Un tanque con la misma forma; `404` si nunca se registró |
+| `GET /tanks/{tank_id}/readings?start=&end=` | Lecturas crudas del rango `[start, end)` |
+
+```sh
+curl localhost:8000/tanks
+curl localhost:8000/tanks/tank-1
+```
+
+```json
+{
+  "id": "tank-1",
+  "display_name": null,
+  "first_seen_at": "2026-01-01T10:00:00Z",
+  "latest": {
+    "temperature": {"tank_id": "tank-1", "sensor_id": "tank-1-temp", "measurement": "temperature",
+                    "value": 19.5, "unit": "celsius", "recorded_at": "2026-01-01T12:05:00Z"},
+    "pressure": null,
+    "alcohol": null
+  }
+}
+```
+
+`latest.<medición>` es `null` si el tanque aún no reportó esa medición. Los errores usan la forma
+unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido, `422` para un
+`tank_id` en blanco). Todos los instantes se devuelven en UTC.
+
+### CORS
+
+`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET` y
+`POST`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
+`http://localhost:5173,http://localhost:3000`:
+
+```sh
+CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
+```
+
+## Series agregadas
+
+Para graficar no se piden lecturas crudas (una fermentación de 10 días a 1 lectura/s son cientos de
+miles de puntos) sino agregados por cubo de tiempo. La migración `0003` crea dos *continuous
+aggregates* de TimescaleDB: `readings_1m` (cubos de 1 minuto, sobre `readings`) y `readings_1h`
+(cubos de 1 hora, jerárquico sobre `readings_1m`, así nunca relee las lecturas crudas).
+
+```sh
+curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1m&start=2026-01-01T12:00:00Z&end=2026-01-01T13:00:00Z'
+curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1h&measurement=temperature&measurement=pressure&start=...&end=...'
+```
+
+```json
+{
+  "tank_id": "tank-1",
+  "bucket": "1m",
+  "series": {
+    "temperature": [
+      {"bucket_start": "2026-01-01T12:00:00Z", "avg": 19.0, "min": 18.0, "max": 20.0, "count": 2}
+    ],
+    "pressure": [],
+    "alcohol": []
+  }
+}
+```
+
+- `bucket` (obligatorio): `1m` o `1h`. `start` y `end` (obligatorios, con zona horaria).
+  `measurement` es opcional y repetible; sin él se devuelven las tres series. Cada medición pedida
+  aparece en `series`, con lista vacía si no tiene puntos.
+- El rango es semiabierto sobre el inicio del cubo: se devuelven los cubos con
+  `start <= bucket_start < end`. Un `start` que cae a mitad de un cubo excluye ese cubo parcial.
+  Los puntos van en orden ascendente y los instantes en UTC.
+- Cada punto agrega **todos los sensores** de esa medición en el tanque (`avg`, `min`, `max`,
+  `count`). Los cubos sin lecturas no aparecen.
+- `readings_1h` guarda la suma y la cantidad, no el promedio: el promedio horario es el ponderado
+  exacto (`sum / count`), no el promedio de los promedios por minuto.
+- Límite: si `(end - start) / bucket` supera 10 000 puntos responde `422`
+  (`1m` admite ~6,9 días por consulta; `1h`, ~416 días). Tanque desconocido: `404`. Los errores usan
+  la forma unificada `{"detail": [{"field", "message"}]}`.
+- Agregación en tiempo real (`materialized_only = false`): los datos aún no materializados se
+  agregan al vuelo, así el último cubo incluye lecturas recientes. Esto solo cubre datos
+  **posteriores** a lo ya materializado.
+- Políticas de refresco: `readings_1m` cada 1 min sobre la ventana [ahora-2 h, ahora-1 min];
+  `readings_1h` cada 30 min sobre [ahora-3 días, ahora-1 h]. Una lectura tardía que cae en un cubo
+  ya materializado, o más antigua que la ventana, no se ve hasta refrescar a mano:
+
+```sh
+docker compose exec timescaledb psql -U fermon -d fermon -c \
+  "CALL refresh_continuous_aggregate('readings_1m', '2026-01-01', '2026-01-02')"
+docker compose exec timescaledb psql -U fermon -d fermon -c \
+  "CALL refresh_continuous_aggregate('readings_1h', '2026-01-01', '2026-01-02')"
+```
+
+## Tiempo real (WebSocket)
+
+`ws://localhost:8000/ws/tanks/{tank_id}` envía cada lectura nueva del tanque como un mensaje de
+texto JSON, con la misma forma que `ReadingOut` de la API REST (instantes en UTC):
+
+```json
+{"tank_id": "tank-1", "sensor_id": "tank-1-temp", "measurement": "temperature",
+ "value": 19.5, "unit": "celsius", "recorded_at": "2026-01-01T12:05:00Z"}
+```
+
+Cómo funciona: al guardar una lectura **nueva** (no un duplicado), el adaptador de persistencia
+ejecuta `pg_notify('fermon_readings', <json>)` en la misma transacción del `INSERT`. PostgreSQL
+entrega la notificación solo al confirmar (`COMMIT`), así que el panel nunca ve datos que no estén
+en la base. Tanto `POST /readings` como el ingestor MQTT pasan por ese adaptador. La API mantiene
+una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscritos a ese tanque.
+
+- Tanque desconocido o `tank_id` en blanco: el servidor acepta y cierra de inmediato con el código
+  `4404` y un motivo. El `tank_id` se normaliza (espacios) igual que en REST.
+- Códigos de cierre del WebSocket:
+
+  | Código | Significado |
+  | ------ | ----------- |
+  | `1011` | Error interno: falló la consulta del tanque (p. ej. base de datos caída). El servidor acepta y cierra con el motivo `internal error` y registra el error. Reintente más tarde. |
+  | `4403` | Origen no permitido (ver abajo). |
+  | `4404` | Tanque desconocido o `tank_id` en blanco. |
+
+- Origen no permitido: si el encabezado `Origin` no está en `CORS_ORIGINS` se acepta el
+  apretón de manos y se cierra de inmediato con `4403` y un motivo, para que el navegador lo
+  observe (CORS no cubre WebSockets, por eso se valida aparte). Los clientes sin
+  `Origin` (scripts, `websocat`) se aceptan: la restricción protege contra páginas de otros sitios,
+  no es autenticación.
+- Semántica de entrega: transmisión **en vivo y de mejor esfuerzo**, sin repetición. Las lecturas
+  guardadas mientras el cliente estaba desconectado, o mientras la API había perdido su conexión de
+  escucha (se reconecta sola con espera de 1 a 30 s), no se reenvían. Al (re)conectar, el cliente
+  debe completar el hueco con `GET /tanks/{tank_id}/readings` o con los agregados.
+- Cliente lento: cada suscriptor tiene una cola acotada de 100 mensajes; si se llena se descarta el
+  mensaje **más antiguo** de ese cliente (nunca bloquea a los demás ni al listener).
+- Los mensajes que envía el cliente se ignoran. `/health` funciona aunque la base no esté disponible.
+- Límite de PostgreSQL: el payload de `NOTIFY` no puede superar 8000 bytes; una lectura ocupa unos
+  pocos cientos. Si superara los 7500 bytes se omite la notificación (con una advertencia en el
+  log) y la lectura se guarda igualmente.
+- El tiempo real nunca afecta a la ingesta: el `pg_notify` va dentro de un `SAVEPOINT`, de modo que
+  un error de `NOTIFY` se registra y se descarta sin revertir el `INSERT`.
+- Conexión de escucha: ante cualquier error inesperado se registra con traza y se reintenta con la
+  misma espera (1 a 30 s). Además, cada 30 s se ejecuta un `SELECT 1` con tiempo límite de 5 s para
+  detectar conexiones medio abiertas; si falla, se reconecta.
+
+```sh
+docker compose exec api uv run python -c "
+import asyncio, websockets
+async def main():
+    async with websockets.connect('ws://localhost:8000/ws/tanks/tank-1') as ws:
+        async for message in ws:
+            print(message)
+asyncio.run(main())"
+```

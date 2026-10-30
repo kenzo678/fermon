@@ -1,9 +1,10 @@
+import json
 import os
 from pathlib import Path
-from typing import Self
+from typing import Annotated, Self
 
-from pydantic import model_validator
-from pydantic_settings import BaseSettings
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 _FORBIDDEN_PREFIX_CHARS = ("+", "#", "/")
 
@@ -20,6 +21,22 @@ class Settings(BaseSettings):
     mqtt_clean_session: bool = False
     # Where the ingestor finds Alembic's config; override when not running from the source tree.
     alembic_ini_path: Path = DEFAULT_ALEMBIC_INI_PATH
+    # Origins allowed to call the API from a browser. NoDecode: the env value is a plain
+    # comma-separated list (or a JSON array), parsed by the validator below.
+    cors_origins: Annotated[list[str], NoDecode] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("["):
+                return json.loads(text)
+            return [origin.strip() for origin in text.split(",") if origin.strip()]
+        return value
 
     @model_validator(mode="before")
     @classmethod

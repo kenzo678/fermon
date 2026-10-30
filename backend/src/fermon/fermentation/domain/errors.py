@@ -42,3 +42,13 @@ class TankNotFoundError(DomainError):
     def __init__(self, tank_id: str) -> None:
         super().__init__(f"tank '{tank_id}' not found")
         self.tank_id = tank_id
+
+
+class TooManyPointsError(DomainError):
+    """Raised when an aggregated query would return more points than allowed."""
+
+    def __init__(self, bucket: str, limit: int) -> None:
+        super().__init__(
+            f"range too large: more than {limit} points with bucket '{bucket}'; "
+            "narrow the range or use a larger bucket"
+        )

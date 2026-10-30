@@ -180,3 +180,56 @@ unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido
 ```sh
 CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
 ```
+
+## Series agregadas
+
+Para graficar no se piden lecturas crudas (una fermentación de 10 días a 1 lectura/s son cientos de
+miles de puntos) sino agregados por cubo de tiempo. La migración `0003` crea dos *continuous
+aggregates* de TimescaleDB: `readings_1m` (cubos de 1 minuto, sobre `readings`) y `readings_1h`
+(cubos de 1 hora, jerárquico sobre `readings_1m`, así nunca relee las lecturas crudas).
+
+```sh
+curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1m&start=2026-01-01T12:00:00Z&end=2026-01-01T13:00:00Z'
+curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1h&measurement=temperature&measurement=pressure&start=...&end=...'
+```
+
+```json
+{
+  "tank_id": "tank-1",
+  "bucket": "1m",
+  "series": {
+    "temperature": [
+      {"bucket_start": "2026-01-01T12:00:00Z", "avg": 19.0, "min": 18.0, "max": 20.0, "count": 2}
+    ],
+    "pressure": [],
+    "alcohol": []
+  }
+}
+```
+
+- `bucket` (obligatorio): `1m` o `1h`. `start` y `end` (obligatorios, con zona horaria).
+  `measurement` es opcional y repetible; sin él se devuelven las tres series. Cada medición pedida
+  aparece en `series`, con lista vacía si no tiene puntos.
+- El rango es semiabierto sobre el inicio del cubo: se devuelven los cubos con
+  `start <= bucket_start < end`. Un `start` que cae a mitad de un cubo excluye ese cubo parcial.
+  Los puntos van en orden ascendente y los instantes en UTC.
+- Cada punto agrega **todos los sensores** de esa medición en el tanque (`avg`, `min`, `max`,
+  `count`). Los cubos sin lecturas no aparecen.
+- `readings_1h` guarda la suma y la cantidad, no el promedio: el promedio horario es el ponderado
+  exacto (`sum / count`), no el promedio de los promedios por minuto.
+- Límite: si `(end - start) / bucket` supera 10 000 puntos responde `422`
+  (`1m` admite ~6,9 días por consulta; `1h`, ~416 días). Tanque desconocido: `404`. Los errores usan
+  la forma unificada `{"detail": [{"field", "message"}]}`.
+- Agregación en tiempo real (`materialized_only = false`): los datos aún no materializados se
+  agregan al vuelo, así el último cubo incluye lecturas recientes. Esto solo cubre datos
+  **posteriores** a lo ya materializado.
+- Políticas de refresco: `readings_1m` cada 1 min sobre la ventana [ahora-2 h, ahora-1 min];
+  `readings_1h` cada 30 min sobre [ahora-3 días, ahora-1 h]. Una lectura tardía que cae en un cubo
+  ya materializado, o más antigua que la ventana, no se ve hasta refrescar a mano:
+
+```sh
+docker compose exec timescaledb psql -U fermon -d fermon -c \
+  "CALL refresh_continuous_aggregate('readings_1m', '2026-01-01', '2026-01-02')"
+docker compose exec timescaledb psql -U fermon -d fermon -c \
+  "CALL refresh_continuous_aggregate('readings_1h', '2026-01-01', '2026-01-02')"
+```

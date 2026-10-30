@@ -2,7 +2,13 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from fermon.fermentation.domain import MeasurementType, Reading, Tank
+from fermon.fermentation.domain import (
+    AggregatedPoint,
+    AggregationBucket,
+    MeasurementType,
+    Reading,
+    Tank,
+)
 
 
 class ReadingRepository(Protocol):
@@ -29,6 +35,20 @@ class ReadingRepository(Protocol):
         """The most recent reading of each measurement, for each given tank.
 
         Tanks (or measurements) without readings are absent from the result.
+        """
+        ...
+
+    async def aggregated(
+        self,
+        tank_id: str,
+        bucket: AggregationBucket,
+        start: datetime,
+        end: datetime,
+        measurements: Sequence[MeasurementType],
+    ) -> list[AggregatedPoint]:
+        """Per-measurement statistics (all sensors together) of buckets starting in [start, end).
+
+        Ordered by bucket start, then measurement. Empty buckets are absent.
         """
         ...
 

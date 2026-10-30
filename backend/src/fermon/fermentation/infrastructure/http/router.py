@@ -4,13 +4,16 @@ from fastapi import APIRouter, Query, Response, status
 from pydantic import AwareDatetime
 
 from fermon.fermentation.application.ingest_reading import IngestReadingCommand
+from fermon.fermentation.domain import AggregationBucket, MeasurementType, normalize_id
 from fermon.fermentation.infrastructure.http.dependencies import (
     GetTankDep,
     IngestReadingDep,
+    ListAggregatedReadingsDep,
     ListReadingsDep,
     ListTanksDep,
 )
 from fermon.fermentation.infrastructure.http.schemas import (
+    AggregatedReadingsOut,
     ErrorResponse,
     ReadingIn,
     ReadingOut,
@@ -71,3 +74,29 @@ async def list_readings(
     """List a tank's readings in the half-open range [start, end), oldest first."""
     readings = await use_case.execute(tank_id, start, end)
     return [ReadingOut.from_domain(r) for r in readings]
+
+
+@router.get(
+    "/tanks/{tank_id}/readings/aggregated",
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def list_aggregated_readings(
+    tank_id: str,
+    bucket: Annotated[AggregationBucket, Query()],
+    start: Annotated[AwareDatetime, Query()],
+    end: Annotated[AwareDatetime, Query()],
+    use_case: ListAggregatedReadingsDep,
+    measurement: Annotated[list[MeasurementType] | None, Query()] = None,
+) -> AggregatedReadingsOut:
+    """Per-bucket avg/min/max/count, grouped by measurement, for buckets starting in [start, end).
+
+    `measurement` may be repeated to select series; all of them by default. All sensors of a
+    measurement are aggregated together. Points are ascending; the newest bucket may be partial.
+    """
+    points = await use_case.execute(tank_id, bucket, start, end, measurement)
+    return AggregatedReadingsOut.from_domain(
+        normalize_id("tank_id", tank_id),
+        bucket,
+        list(dict.fromkeys(measurement)) if measurement else list(MeasurementType),
+        points,
+    )

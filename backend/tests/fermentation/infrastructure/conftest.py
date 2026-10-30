@@ -50,7 +50,8 @@ def migrated_database_url() -> str:
 async def engine(migrated_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(migrated_database_url)
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE readings, tanks"))
+        # TRUNCATE on the hypertable does not clear the continuous aggregates' materialized data.
+        await conn.execute(text("TRUNCATE readings, tanks, readings_1m, readings_1h"))
     yield engine
     await engine.dispose()
 

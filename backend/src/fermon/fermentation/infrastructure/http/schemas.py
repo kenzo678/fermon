@@ -1,9 +1,15 @@
+from collections.abc import Sequence
 from datetime import UTC
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from fermon.fermentation.application import TankOverview
-from fermon.fermentation.domain import MeasurementType, Reading
+from fermon.fermentation.domain import (
+    AggregatedPoint,
+    AggregationBucket,
+    MeasurementType,
+    Reading,
+)
 
 
 class ReadingIn(BaseModel):
@@ -71,6 +77,43 @@ class TankOut(BaseModel):
                 alcohol=newest(MeasurementType.ALCOHOL),
             ),
         )
+
+
+class AggregatedPointOut(BaseModel):
+    bucket_start: AwareDatetime
+    avg: float
+    min: float
+    max: float
+    count: int
+
+
+class AggregatedReadingsOut(BaseModel):
+    """Aggregated points per requested measurement (empty list when it has none)."""
+
+    tank_id: str
+    bucket: str
+    series: dict[str, list[AggregatedPointOut]]
+
+    @classmethod
+    def from_domain(
+        cls,
+        tank_id: str,
+        bucket: AggregationBucket,
+        measurements: Sequence[MeasurementType],
+        points: Sequence[AggregatedPoint],
+    ) -> "AggregatedReadingsOut":
+        series: dict[str, list[AggregatedPointOut]] = {m.value: [] for m in measurements}
+        for p in points:
+            series[p.measurement.value].append(
+                AggregatedPointOut(
+                    bucket_start=p.bucket_start.astimezone(UTC),
+                    avg=p.avg,
+                    min=p.min,
+                    max=p.max,
+                    count=p.count,
+                )
+            )
+        return cls(tank_id=tank_id, bucket=bucket.value, series=series)
 
 
 class ErrorDetail(BaseModel):

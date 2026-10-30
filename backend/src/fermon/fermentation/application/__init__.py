@@ -4,6 +4,7 @@ from fermon.fermentation.application.ingest_reading import (
     IngestReadingCommand,
     IngestResult,
 )
+from fermon.fermentation.application.list_aggregated_readings import ListAggregatedReadings
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
 from fermon.fermentation.application.ports import ReadingRepository, TankRepository
@@ -14,6 +15,7 @@ __all__ = [
     "IngestReading",
     "IngestReadingCommand",
     "IngestResult",
+    "ListAggregatedReadings",
     "ListReadings",
     "ListTanks",
     "ReadingRepository",

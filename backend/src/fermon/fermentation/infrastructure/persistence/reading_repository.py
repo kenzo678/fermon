@@ -6,8 +6,19 @@ from sqlalchemy import Row, Text, column, select, true, values
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from fermon.fermentation.domain import MeasurementType, Reading, normalize_id, validate_time_range
-from fermon.fermentation.infrastructure.persistence.tables import readings
+from fermon.fermentation.domain import (
+    AggregatedPoint,
+    AggregationBucket,
+    MeasurementType,
+    Reading,
+    normalize_id,
+    validate_time_range,
+)
+from fermon.fermentation.infrastructure.persistence.tables import (
+    readings,
+    readings_1h,
+    readings_1m,
+)
 
 
 class SqlAlchemyReadingRepository:
@@ -98,6 +109,55 @@ class SqlAlchemyReadingRepository:
             reading = _to_domain(row)
             latest.setdefault(reading.tank_id, {})[reading.measurement] = reading
         return latest
+
+    async def aggregated(
+        self,
+        tank_id: str,
+        bucket: AggregationBucket,
+        start: datetime,
+        end: datetime,
+        measurements: Sequence[MeasurementType],
+    ) -> list[AggregatedPoint]:
+        validate_time_range(start, end)
+        if not measurements:
+            return []
+        view = _AGGREGATE_VIEWS[bucket]
+        statement = (
+            select(
+                view.c.bucket,
+                view.c.measurement,
+                (view.c.sum_value / view.c.sample_count).label("avg"),
+                view.c.min_value,
+                view.c.max_value,
+                view.c.sample_count,
+            )
+            .where(
+                view.c.tank_id == normalize_id("tank_id", tank_id),
+                view.c.measurement.in_([m.value for m in measurements]),
+                view.c.bucket >= start,
+                view.c.bucket < end,
+            )
+            .order_by(view.c.bucket.asc(), view.c.measurement.asc())
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        return [
+            AggregatedPoint(
+                bucket_start=row.bucket,
+                measurement=MeasurementType(row.measurement),
+                avg=row.avg,
+                min=row.min_value,
+                max=row.max_value,
+                count=row.sample_count,
+            )
+            for row in rows
+        ]
+
+
+_AGGREGATE_VIEWS = {
+    AggregationBucket.ONE_MINUTE: readings_1m,
+    AggregationBucket.ONE_HOUR: readings_1h,
+}
 
 
 def _to_domain(row: Row[Any]) -> Reading:

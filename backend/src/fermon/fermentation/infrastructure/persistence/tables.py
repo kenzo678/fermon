@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     Double,
@@ -42,3 +43,26 @@ tanks = Table(
     Column("display_name", Text, nullable=True),
     Column("first_seen_at", DateTime(timezone=True), nullable=False),
 )
+
+
+# Continuous aggregates created by migration 0003 (see it for the semantics). They are views, not
+# tables to migrate, so they live in their own MetaData: Alembic autogenerate must not manage them.
+aggregates_metadata = MetaData()
+
+
+def _aggregate_view(name: str) -> Table:
+    return Table(
+        name,
+        aggregates_metadata,
+        Column("bucket", DateTime(timezone=True)),
+        Column("tank_id", Text),
+        Column("measurement", Text),
+        Column("sum_value", Double),
+        Column("min_value", Double),
+        Column("max_value", Double),
+        Column("sample_count", BigInteger),
+    )
+
+
+readings_1m = _aggregate_view("readings_1m")
+readings_1h = _aggregate_view("readings_1h")

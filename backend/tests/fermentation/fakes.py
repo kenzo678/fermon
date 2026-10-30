@@ -1,7 +1,13 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 
-from fermon.fermentation.domain import MeasurementType, Reading, Tank
+from fermon.fermentation.domain import (
+    AggregatedPoint,
+    AggregationBucket,
+    MeasurementType,
+    Reading,
+    Tank,
+)
 
 
 def _identity(reading: Reading) -> tuple[str, str, MeasurementType, datetime]:
@@ -39,6 +45,28 @@ class InMemoryReadingRepository:
             if r.tank_id in tank_ids:
                 latest.setdefault(r.tank_id, {})[r.measurement] = r
         return latest
+
+    async def aggregated(
+        self,
+        tank_id: str,
+        bucket: AggregationBucket,
+        start: datetime,
+        end: datetime,
+        measurements: Sequence[MeasurementType],
+    ) -> list[AggregatedPoint]:
+        size = int(bucket.interval.total_seconds())
+        groups: dict[tuple[datetime, MeasurementType], list[float]] = {}
+        for r in self.readings:
+            if r.tank_id != tank_id or r.measurement not in measurements:
+                continue
+            seconds = int(r.recorded_at.timestamp())
+            bucket_start = datetime.fromtimestamp(seconds - seconds % size, UTC)
+            if start <= bucket_start < end:
+                groups.setdefault((bucket_start, r.measurement), []).append(r.value)
+        return [
+            AggregatedPoint(at, m, sum(v) / len(v), min(v), max(v), len(v))
+            for (at, m), v in sorted(groups.items(), key=lambda item: (item[0][0], item[0][1]))
+        ]
 
 
 class InMemoryTankRepository:

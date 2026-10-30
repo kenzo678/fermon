@@ -33,7 +33,7 @@ alertas, autenticación, retención (features posteriores), frontend.
 ## Tareas
 - [x] T1 — CORS + tanques: tabla `tanks` con migración, auto-registro en la ingesta,
   `GET /tanks` (con última lectura por medición) y `GET /tanks/{tank_id}`.
-- [ ] T2 — Series agregadas: continuous aggregates 1m/1h + `GET /tanks/{tank_id}/readings/aggregated`.
+- [x] T2 — Series agregadas: continuous aggregates 1m/1h + `GET /tanks/{tank_id}/readings/aggregated`.
 - [ ] T3 — Tiempo real: NOTIFY desde el ingestor, LISTEN en la API, WebSocket `/ws/tanks/{tank_id}`.
 - [ ] T4 — PR.
 
@@ -81,5 +81,26 @@ alertas, autenticación, retención (features posteriores), frontend.
   (`first_seen_at` es `NOT NULL`).
 - Entrega: T1 enmendado y `push --force-with-lease` autorizado por el usuario.
 
+- T2 completada (ruta delegada, un escritor). Migración `0003`: continuous aggregates `readings_1m`
+  y `readings_1h` (jerárquico sobre `readings_1m`), columnas `sum_value/min/max/sample_count` para
+  que el promedio horario sea ponderado exacto; agregación en tiempo real (`materialized_only=false`);
+  políticas 1m (2 h / 1 min / cada 1 min) y 1h (3 días / 1 h / cada 30 min); `autocommit_block()`;
+  downgrade quita las políticas antes de los DROP (evita una carrera con el job de refresh).
+  Agrega todos los sensores de una misma medición. `AggregationBucket`, `AggregatedPoint`, guard de
+  10 000 puntos (`TooManyPointsError` → 422), `ListAggregatedReadings`,
+  `GET /tanks/{tank_id}/readings/aggregated?bucket&start&end&measurement`. Limitación documentada: una
+  lectura tardía en un bucket ya materializado no aparece hasta el próximo refresh (test de
+  caracterización). Evidencia TDD: RED `ImportError ... ListAggregatedReadings`,
+  `... get_list_aggregated_readings`, 7 × `AttributeError ... aggregated`, migración sin caggs; GREEN
+  `249 passed` (6 corridas seguidas). Con las correcciones de T1 integradas: `251 passed`;
+  ruff/format/mypy OK. Smoke dev: 1m y 1h devuelven puntos (p. ej. avg 19.05, count 15).
+
+- Revisión RDD de T2 (`552f800` → `7881b96`, 1001 líneas, medio): aprobada por el usuario,
+  **aprobada** y reconocida. Única SUGGESTION `R3-policy-params-unasserted` corregida: el test de la
+  migración ahora afirma las ventanas de las políticas (1h: 3 days / 01:00:00 / 30 min; 1m:
+  02:00:00 / 00:01:00 / 1 min). Es de caracterización (la migración ya era correcta). Hallazgo:
+  en TimescaleDB 2.31 los jobs de refresh reportan el nombre de la vista, no la hypertable interna.
+  `251 passed`; ruff/format OK.
+
 ## Próximo paso
-T2 — series agregadas.
+T3 — tiempo real (WebSocket).

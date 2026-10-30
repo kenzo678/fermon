@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from fermon.fermentation.infrastructure.persistence import metadata
-from tests.fermentation.infrastructure.database import alembic_config
+from fermon.fermentation.infrastructure.schema import alembic_config
 
 pytestmark = pytest.mark.integration
 

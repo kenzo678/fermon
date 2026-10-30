@@ -7,6 +7,7 @@ from typing import Any
 import aiomqtt
 import pytest
 from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from fermon.fermentation.application import IngestReading
 from fermon.fermentation.domain import Reading
@@ -339,6 +340,7 @@ def test_default_client_factory_honors_clean_session(monkeypatch: pytest.MonkeyP
         (ConnectionRefusedError("refused"), True),
         (OSError("network unreachable"), True),
         (TimeoutError(), True),
+        (PoolTimeoutError("QueuePool limit reached"), True),
         (DBAPIError("SELECT 1", {}, Exception("bad"), connection_invalidated=False), False),
         (IntegrityError("INSERT", {}, Exception("dup")), False),
         (RuntimeError("bug"), False),

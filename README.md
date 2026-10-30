@@ -79,13 +79,36 @@ de dominio) y se guarda con `IngestReading`; los mensajes inválidos se descarta
 advertencia en el log y nunca detienen el proceso. Si el broker se cae, reconecta con espera
 creciente de 1 a 30 s.
 
+Al arrancar, antes de suscribirse, el ingestor compara la revisión de Alembic de la base con el
+historial de migraciones del código y distingue tres estados:
+
+- Listo (`READY`): la revisión es `head`; lo informa y empieza a consumir.
+- Atrasado (`BEHIND`): no existe la tabla de versión o la revisión es anterior a `head`. Registra
+  una advertencia ("run `alembic upgrade head`") y reintenta con espera creciente de 1 a 30 s. Lo
+  mismo ocurre si la base no está disponible (advertencia "database unavailable").
+- Revisión desconocida (`UNKNOWN_REVISION`): la base está en una revisión que este código no conoce
+  (base más nueva o divergente). Esperar no lo arregla, así que el ingestor registra un ERROR
+  indicando que hay que desplegar la versión de código que corresponde y sale con estado distinto
+  de cero.
+
+Un error de configuración de Alembic (directorio de migraciones inexistente, varios `head`)
+tampoco es transitorio: se registra como ERROR y el proceso termina con estado distinto de cero.
+Mientras espera no consume, así la sesión persistente de MQTT conserva los mensajes y no se
+descarta ninguno por tabla inexistente.
+
+Por defecto el ingestor busca `alembic.ini` en el árbol de fuentes (`backend/alembic.ini`, y las
+migraciones junto a él). Si se despliega fuera de ese árbol, indique la ruta con la variable de
+entorno `ALEMBIC_INI_PATH`; un `script_location` relativo se resuelve respecto al directorio de ese
+archivo.
+
 Semántica de entrega: QoS 1 es "al menos una vez" y la ingesta es idempotente, así que los
 duplicados no generan filas repetidas. aiomqtt confirma (ack) cada mensaje al recibirlo, por lo que
 el broker no lo reenvía; por eso el ingestor clasifica los fallos al guardar:
 
-- Errores transitorios (base de datos o red no disponibles, p. ej. conexión caída o timeout): el
-  ingestor no se desconecta y reintenta el mismo mensaje con espera creciente (1, 2, 4, ... hasta
-  30 s), mientras aiomqtt acumula los mensajes siguientes; al recuperarse, los procesa en orden.
+- Errores transitorios (base de datos o red no disponibles, p. ej. conexión caída, timeout
+  o pool de conexiones agotado): el ingestor no se desconecta y reintenta el mismo mensaje con
+  espera creciente (1, 2, 4, ... hasta 30 s), mientras aiomqtt acumula los mensajes siguientes; al
+  recuperarse, los procesa en orden.
 - Errores permanentes por mensaje (violación de restricciones, errores de programación, etc.): se
   registran en el log con nivel ERROR (traza, tópico y un extracto del payload) y el mensaje se
   descarta; el siguiente se procesa de inmediato, así un mensaje defectuoso no detiene la ingesta.

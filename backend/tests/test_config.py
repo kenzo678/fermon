@@ -25,3 +25,11 @@ def test_configured_mqtt_topic_env_var_is_rejected(monkeypatch: pytest.MonkeyPat
 def test_mqtt_topic_prefix_env_var_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MQTT_TOPIC_PREFIX", "plant-a")
     assert Settings().mqtt_topic == "plant-a/tanks/+/readings"
+
+
+def test_alembic_ini_path_defaults_to_the_source_tree_and_is_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings().alembic_ini_path.name == "alembic.ini"
+    monkeypatch.setenv("ALEMBIC_INI_PATH", "/opt/fermon/alembic.ini")
+    assert str(Settings().alembic_ini_path) == "/opt/fermon/alembic.ini"

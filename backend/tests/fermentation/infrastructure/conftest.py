@@ -9,7 +9,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from fermon.fermentation.infrastructure.persistence import SqlAlchemyReadingRepository
-from tests.fermentation.infrastructure.database import alembic_config, require_test_database
+from fermon.fermentation.infrastructure.schema import alembic_config
+from tests.fermentation.infrastructure.database import require_test_database
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://fermon:fermon@timescaledb:5432/fermon_test"
 

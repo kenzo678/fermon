@@ -27,6 +27,7 @@ from typing import Any
 import aiomqtt
 from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from fermon.fermentation.application import IngestReading
 from fermon.fermentation.domain import DomainError
@@ -37,6 +38,7 @@ from fermon.fermentation.infrastructure.mqtt.messages import (
     to_command,
 )
 from fermon.shared.config import Settings
+from fermon.shared.waiting import sleep_or_stop
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +52,15 @@ def is_transient(exc: BaseException) -> bool:
     """Whether a failure while ingesting is worth retrying on the same message.
 
     Transient means the database (or network path to it) is unavailable: SQLAlchemy operational,
-    interface and connection-invalidated DBAPI errors, OS-level/connection errors and timeouts.
+    interface and connection-invalidated DBAPI errors, OS-level/connection errors, timeouts and
+    connection-pool exhaustion (``sqlalchemy.exc.TimeoutError``, which is neither a ``DBAPIError``
+    nor the builtin ``TimeoutError``).
     Everything else (integrity violations, programming errors, bugs) would fail identically on
     every retry, so it is permanent.
     """
-    if isinstance(exc, OperationalError | InterfaceError | OSError | TimeoutError):
+    if isinstance(
+        exc, OperationalError | InterfaceError | OSError | TimeoutError | PoolTimeoutError
+    ):
         return True
     return isinstance(exc, DBAPIError) and exc.connection_invalidated
 
@@ -102,13 +108,6 @@ def _default_client_factory(settings: Settings) -> Any:
         identifier=settings.mqtt_client_id,
         clean_session=settings.mqtt_clean_session,
     )
-
-
-async def _sleep_or_stop(stop: asyncio.Event, seconds: float) -> None:
-    try:
-        await asyncio.wait_for(stop.wait(), timeout=seconds)
-    except TimeoutError:
-        pass
 
 
 async def _handle_with_retry(
@@ -175,7 +174,7 @@ async def run_consumer(
     ingest: IngestReading,
     stop: asyncio.Event,
     client_factory: Callable[[Settings], Any] = _default_client_factory,
-    wait: Callable[[asyncio.Event, float], Awaitable[None]] = _sleep_or_stop,
+    wait: Callable[[asyncio.Event, float], Awaitable[None]] = sleep_or_stop,
     ready: asyncio.Event | None = None,
 ) -> None:
     """Consume until ``stop`` is set, reconnecting to the broker with capped exponential backoff.

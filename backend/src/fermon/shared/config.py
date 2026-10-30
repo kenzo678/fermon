@@ -1,10 +1,14 @@
 import os
+from pathlib import Path
 from typing import Self
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 _FORBIDDEN_PREFIX_CHARS = ("+", "#", "/")
+
+# config.py -> shared -> fermon -> src -> backend (source-tree layout)
+DEFAULT_ALEMBIC_INI_PATH = Path(__file__).resolve().parents[3] / "alembic.ini"
 
 
 class Settings(BaseSettings):
@@ -14,6 +18,8 @@ class Settings(BaseSettings):
     mqtt_client_id: str = "fermon-ingestor"
     mqtt_topic_prefix: str = "fermon"
     mqtt_clean_session: bool = False
+    # Where the ingestor finds Alembic's config; override when not running from the source tree.
+    alembic_ini_path: Path = DEFAULT_ALEMBIC_INI_PATH
 
     @model_validator(mode="before")
     @classmethod

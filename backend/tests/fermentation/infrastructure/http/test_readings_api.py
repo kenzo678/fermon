@@ -13,7 +13,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_list_readings,
 )
 from fermon.main import create_app
-from tests.fermentation.fakes import InMemoryReadingRepository
+from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
 
 
 def make_body(**overrides: Any) -> dict[str, Any]:
@@ -37,7 +37,9 @@ def repository() -> InMemoryReadingRepository:
 @pytest.fixture
 def app(repository: InMemoryReadingRepository) -> FastAPI:
     app = create_app()
-    app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(repository)
+    app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(
+        repository, InMemoryTankRepository()
+    )
     app.dependency_overrides[get_list_readings] = lambda: ListReadings(repository)
     return app
 

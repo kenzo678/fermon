@@ -1,7 +1,8 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, Text, column, select, true, values
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -59,6 +60,44 @@ class SqlAlchemyReadingRepository:
         async with self._session_factory() as session:
             rows = (await session.execute(statement)).all()
         return [_to_domain(row) for row in rows]
+
+    async def latest_per_measurement(
+        self, tank_ids: Sequence[str]
+    ) -> dict[str, dict[MeasurementType, Reading]]:
+        if not tank_ids:
+            return {}
+        # One LATERAL "newest row" lookup per (tank, measurement) pair. Each probe walks
+        # ix_readings_tank_id_recorded_at (tank_id, recorded_at DESC) and stops at the first row
+        # of that measurement, so cost is ~#tanks x #measurements index probes regardless of
+        # history size. DISTINCT ON (tank_id, measurement) would instead read every reading of
+        # every requested tank on the hypertable.
+        tank_values = values(column("id", Text), name="wanted_tanks").data(
+            [(normalize_id("tank_id", t),) for t in tank_ids]
+        )
+        measurement_values = values(column("name", Text), name="wanted_measurements").data(
+            [(m.value,) for m in MeasurementType]
+        )
+        newest = (
+            select(readings)
+            .where(
+                readings.c.tank_id == tank_values.c.id,
+                readings.c.measurement == measurement_values.c.name,
+            )
+            # sensor_id breaks same-instant ties so the result is stable across calls.
+            .order_by(readings.c.recorded_at.desc(), readings.c.sensor_id.desc())
+            .limit(1)
+            .lateral("newest")
+        )
+        statement = select(newest).select_from(
+            tank_values.join(measurement_values, true()).join(newest, true())
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        latest: dict[str, dict[MeasurementType, Reading]] = {}
+        for row in rows:
+            reading = _to_domain(row)
+            latest.setdefault(reading.tank_id, {})[reading.measurement] = reading
+        return latest
 
 
 def _to_domain(row: Row[Any]) -> Reading:

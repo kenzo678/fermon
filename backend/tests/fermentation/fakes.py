@@ -1,6 +1,7 @@
+from collections.abc import Sequence
 from datetime import datetime
 
-from fermon.fermentation.domain import MeasurementType, Reading
+from fermon.fermentation.domain import MeasurementType, Reading, Tank
 
 
 def _identity(reading: Reading) -> tuple[str, str, MeasurementType, datetime]:
@@ -28,3 +29,30 @@ class InMemoryReadingRepository:
             r for r in self.readings if r.tank_id == tank_id and start <= r.recorded_at < end
         ]
         return sorted(matching, key=lambda r: r.recorded_at)
+
+    async def latest_per_measurement(
+        self, tank_ids: Sequence[str]
+    ) -> dict[str, dict[MeasurementType, Reading]]:
+        latest: dict[str, dict[MeasurementType, Reading]] = {}
+        # Same tie-break as the SQL adapter: newest recorded_at, then highest sensor_id.
+        for r in sorted(self.readings, key=lambda r: (r.recorded_at, r.sensor_id)):
+            if r.tank_id in tank_ids:
+                latest.setdefault(r.tank_id, {})[r.measurement] = r
+        return latest
+
+
+class InMemoryTankRepository:
+    def __init__(self) -> None:
+        self.tanks: dict[str, Tank] = {}
+
+    async def ensure(self, tank_id: str, seen_at: datetime) -> None:
+        current = self.tanks.get(tank_id)
+        if current is None or seen_at < current.first_seen_at:
+            display_name = current.display_name if current else None
+            self.tanks[tank_id] = Tank(id=tank_id, display_name=display_name, first_seen_at=seen_at)
+
+    async def get(self, tank_id: str) -> Tank | None:
+        return self.tanks.get(tank_id)
+
+    async def list(self) -> list[Tank]:
+        return sorted(self.tanks.values(), key=lambda t: t.id)

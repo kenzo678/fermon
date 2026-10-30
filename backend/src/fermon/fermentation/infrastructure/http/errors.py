@@ -6,6 +6,8 @@ from fermon.fermentation.domain import (
     DomainError,
     InvalidIdentifierError,
     InvalidReadingError,
+    InvalidTankError,
+    TankNotFoundError,
 )
 
 _LOCATION_KINDS = {"body", "query", "path"}
@@ -19,8 +21,20 @@ def _unprocessable(errors: list[dict[str, str | None]]) -> JSONResponse:
 
 async def domain_error_handler(_: Request, exc: Exception) -> JSONResponse:
     """Map domain rule violations to 422 with `{"detail": [{"field", "message"}]}`."""
-    field = exc.field if isinstance(exc, InvalidReadingError | InvalidIdentifierError) else None
+    field = (
+        exc.field
+        if isinstance(exc, InvalidReadingError | InvalidIdentifierError | InvalidTankError)
+        else None
+    )
     return _unprocessable([{"field": field, "message": str(exc)}])
+
+
+async def tank_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Map an unknown tank to 404 with the same `{"detail": [{"field", "message"}]}` shape."""
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": [{"field": "tank_id", "message": str(exc)}]},
+    )
 
 
 async def validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
@@ -39,4 +53,5 @@ async def validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
 
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DomainError, domain_error_handler)
+    app.add_exception_handler(TankNotFoundError, tank_not_found_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

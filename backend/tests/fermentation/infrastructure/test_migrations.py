@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 from alembic import command
@@ -56,4 +57,44 @@ async def test_downgrade_then_upgrade_restores_the_hypertable(migrated_database_
     finally:
         # Leave the shared session database migrated for the other tests.
         await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_tanks_migration_backfills_tanks_from_existing_readings(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    insert = text(
+        "INSERT INTO readings (tank_id, sensor_id, measurement, value, unit, recorded_at) "
+        "VALUES (:tank, 's', 'temperature', 18, 'celsius', :at)"
+    )
+    try:
+        await asyncio.to_thread(command.downgrade, config, "0001")
+        async with engine.begin() as conn:
+            assert await conn.scalar(text("SELECT to_regclass('public.tanks')")) is None
+            await conn.execute(text("TRUNCATE readings"))
+            for tank, at in [
+                ("tank-b", datetime(2026, 1, 2, tzinfo=UTC)),
+                ("tank-a", datetime(2026, 1, 3, tzinfo=UTC)),
+                ("tank-a", datetime(2026, 1, 1, tzinfo=UTC)),
+            ]:
+                await conn.execute(insert, {"tank": tank, "at": at})
+
+        await asyncio.to_thread(command.upgrade, config, "head")
+
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text("SELECT id, display_name, first_seen_at FROM tanks ORDER BY id")
+                )
+            ).all()
+        assert [(r.id, r.display_name, r.first_seen_at) for r in rows] == [
+            ("tank-a", None, datetime(2026, 1, 1, tzinfo=UTC)),
+            ("tank-b", None, datetime(2026, 1, 2, tzinfo=UTC)),
+        ]
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        async with engine.begin() as conn:
+            await conn.execute(text("TRUNCATE readings, tanks"))
         await engine.dispose()

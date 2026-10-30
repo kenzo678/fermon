@@ -8,7 +8,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
-from fermon.fermentation.infrastructure.persistence import SqlAlchemyReadingRepository
+from fermon.fermentation.infrastructure.persistence import (
+    SqlAlchemyReadingRepository,
+    SqlAlchemyTankRepository,
+)
 from fermon.fermentation.infrastructure.schema import alembic_config
 from tests.fermentation.infrastructure.database import require_test_database
 
@@ -47,7 +50,7 @@ def migrated_database_url() -> str:
 async def engine(migrated_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(migrated_database_url)
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE readings"))
+        await conn.execute(text("TRUNCATE readings, tanks"))
     yield engine
     await engine.dispose()
 
@@ -55,3 +58,8 @@ async def engine(migrated_database_url: str) -> AsyncIterator[AsyncEngine]:
 @pytest.fixture
 def repository(engine: AsyncEngine) -> SqlAlchemyReadingRepository:
     return SqlAlchemyReadingRepository(async_sessionmaker(engine, expire_on_commit=False))
+
+
+@pytest.fixture
+def tank_repository(engine: AsyncEngine) -> SqlAlchemyTankRepository:
+    return SqlAlchemyTankRepository(async_sessionmaker(engine, expire_on_commit=False))

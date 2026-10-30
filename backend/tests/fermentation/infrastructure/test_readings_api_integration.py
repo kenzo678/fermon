@@ -73,3 +73,28 @@ async def test_non_utc_offsets_are_answered_normalized_to_utc_in_post_and_get(
     assert created.status_code == 201
     assert created.json()["recorded_at"] == utc_timestamp
     assert listed.json() == [created.json()]
+
+
+async def test_ingest_registers_the_tank_once_and_tanks_endpoints_show_latest_readings(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await client.post("/readings", json=BODY)
+    await client.post(
+        "/readings", json={**BODY, "value": 19.0, "recorded_at": "2026-01-01T11:00:00Z"}
+    )
+    await client.post("/readings", json=BODY)  # duplicate
+
+    listed = await client.get("/tanks")
+    single = await client.get("/tanks/tank-1")
+    missing = await client.get("/tanks/nope")
+
+    assert listed.status_code == 200
+    [tank] = listed.json()
+    assert tank["id"] == "tank-1"
+    assert tank["first_seen_at"] == "2026-01-01T10:00:00Z"
+    assert tank["latest"]["temperature"]["value"] == 19.0
+    assert tank["latest"]["pressure"] is None
+    assert single.json() == tank
+    assert missing.status_code == 404
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM tanks")) == 1

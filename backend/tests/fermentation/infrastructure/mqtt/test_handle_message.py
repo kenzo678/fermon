@@ -8,7 +8,7 @@ import pytest
 from fermon.fermentation.application import IngestReading
 from fermon.fermentation.domain import MeasurementType, Reading
 from fermon.fermentation.infrastructure.mqtt.consumer import handle_message
-from tests.fermentation.fakes import InMemoryReadingRepository
+from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
 
 TOPIC = "fermon/tanks/tank-1/readings"
 
@@ -32,7 +32,7 @@ class FailingRepository(InMemoryReadingRepository):
 
 async def test_valid_message_is_ingested() -> None:
     repo = InMemoryReadingRepository()
-    await handle_message(TOPIC, payload(), IngestReading(repo))
+    await handle_message(TOPIC, payload(), IngestReading(repo, InMemoryTankRepository()))
     assert repo.readings == [
         Reading(
             "tank-1",
@@ -47,8 +47,8 @@ async def test_valid_message_is_ingested() -> None:
 
 async def test_duplicate_message_is_stored_once() -> None:
     repo = InMemoryReadingRepository()
-    await handle_message(TOPIC, payload(), IngestReading(repo))
-    await handle_message(TOPIC, payload(), IngestReading(repo))
+    await handle_message(TOPIC, payload(), IngestReading(repo, InMemoryTankRepository()))
+    await handle_message(TOPIC, payload(), IngestReading(repo, InMemoryTankRepository()))
     assert len(repo.readings) == 1
 
 
@@ -71,7 +71,7 @@ async def test_invalid_message_is_dropped_with_warning(
 ) -> None:
     repo = InMemoryReadingRepository()
     with caplog.at_level(logging.WARNING):
-        await handle_message(topic, body, IngestReading(repo))
+        await handle_message(topic, body, IngestReading(repo, InMemoryTankRepository()))
     assert repo.readings == []
     [record] = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert topic in record.getMessage()
@@ -81,17 +81,21 @@ async def test_invalid_message_is_dropped_with_warning(
 async def test_infrastructure_error_is_reraised_for_the_caller_to_classify() -> None:
     # Logging of infrastructure errors belongs to the consumer, which knows whether it retries.
     with pytest.raises(ConnectionError):
-        await handle_message(TOPIC, payload(), IngestReading(FailingRepository()))
+        await handle_message(
+            TOPIC, payload(), IngestReading(FailingRepository(), InMemoryTankRepository())
+        )
 
 
 async def test_handle_message_validates_against_the_configured_prefix() -> None:
     repo = InMemoryReadingRepository()
-    await handle_message(TOPIC, payload(), IngestReading(repo), topic_prefix="fermon-test")
+    await handle_message(
+        TOPIC, payload(), IngestReading(repo, InMemoryTankRepository()), topic_prefix="fermon-test"
+    )
     assert repo.readings == []
     await handle_message(
         "fermon-test/tanks/tank-1/readings",
         payload(),
-        IngestReading(repo),
+        IngestReading(repo, InMemoryTankRepository()),
         topic_prefix="fermon-test",
     )
     assert len(repo.readings) == 1

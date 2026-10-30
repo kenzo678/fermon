@@ -13,7 +13,7 @@ from fermon.fermentation.application import IngestReading
 from fermon.fermentation.domain import Reading
 from fermon.fermentation.infrastructure.mqtt import consumer
 from fermon.shared.config import Settings
-from tests.fermentation.fakes import InMemoryReadingRepository
+from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
 from tests.fermentation.infrastructure.mqtt.test_handle_message import TOPIC, payload
 
 
@@ -96,7 +96,7 @@ async def run_script(
         waits.append(seconds)
         await asyncio.sleep(0)  # yield so wait_for can interrupt a runaway loop
 
-    ingest = IngestReading(repo or InMemoryReadingRepository())
+    ingest = IngestReading(repo or InMemoryReadingRepository(), InMemoryTankRepository())
     await asyncio.wait_for(
         consumer.run_consumer(
             make_settings(), ingest, stop, client_factory=factory, wait=fake_wait
@@ -129,7 +129,7 @@ async def test_stop_during_backoff_exits_promptly() -> None:
     await asyncio.wait_for(
         consumer.run_consumer(
             make_settings(),
-            IngestReading(InMemoryReadingRepository()),
+            IngestReading(InMemoryReadingRepository(), InMemoryTankRepository()),
             stop,
             client_factory=lambda s: FakeClient("fail", [], None),
         ),
@@ -145,7 +145,7 @@ async def test_stop_while_idle_exits_promptly() -> None:
     await asyncio.wait_for(
         consumer.run_consumer(
             make_settings(),
-            IngestReading(InMemoryReadingRepository()),
+            IngestReading(InMemoryReadingRepository(), InMemoryTankRepository()),
             stop,
             client_factory=lambda s: FakeClient("ok_idle", [], None),
         ),
@@ -162,7 +162,7 @@ async def test_received_messages_are_ingested_and_invalid_ones_do_not_stop_the_l
     await asyncio.wait_for(
         consumer.run_consumer(
             make_settings(),
-            IngestReading(repo),
+            IngestReading(repo, InMemoryTankRepository()),
             stop,
             client_factory=lambda s: FakeClient("ok", items, stop),
         ),
@@ -206,7 +206,11 @@ async def run_with_flaky_repo(
 
     await asyncio.wait_for(
         consumer.run_consumer(
-            make_settings(), IngestReading(repo), stop, client_factory=factory, wait=fake_wait
+            make_settings(),
+            IngestReading(repo, InMemoryTankRepository()),
+            stop,
+            client_factory=factory,
+            wait=fake_wait,
         ),
         timeout=5,
     )
@@ -270,7 +274,7 @@ async def test_stop_during_real_ingest_wait_exits_promptly() -> None:
     await asyncio.wait_for(
         consumer.run_consumer(
             make_settings(),
-            IngestReading(FlakyRepository(failures=None)),
+            IngestReading(FlakyRepository(failures=None), InMemoryTankRepository()),
             stop,
             client_factory=lambda s: FakeClient("ok", [message(payload())], None),
         ),
@@ -291,7 +295,10 @@ async def test_subscribes_to_the_configured_prefix() -> None:
 
     await asyncio.wait_for(
         consumer.run_consumer(
-            settings, IngestReading(InMemoryReadingRepository()), stop, client_factory=factory
+            settings,
+            IngestReading(InMemoryReadingRepository(), InMemoryTankRepository()),
+            stop,
+            client_factory=factory,
         ),
         timeout=3,
     )
@@ -305,7 +312,7 @@ async def test_ready_is_set_after_subscribing() -> None:
     task = asyncio.create_task(
         consumer.run_consumer(
             make_settings(),
-            IngestReading(InMemoryReadingRepository()),
+            IngestReading(InMemoryReadingRepository(), InMemoryTankRepository()),
             stop,
             client_factory=lambda s: client,
             ready=ready,
@@ -386,7 +393,7 @@ async def test_permanent_failure_is_dropped_without_waiting_and_next_message_is_
         await asyncio.wait_for(
             consumer.run_consumer(
                 make_settings(),
-                IngestReading(repo),
+                IngestReading(repo, InMemoryTankRepository()),
                 stop,
                 client_factory=lambda s: FakeClient("ok", items, stop),
                 wait=fake_wait,
@@ -419,7 +426,7 @@ async def run_with_flaky_repo_like(repo: InMemoryReadingRepository, items: list[
     await asyncio.wait_for(
         consumer.run_consumer(
             make_settings(),
-            IngestReading(repo),
+            IngestReading(repo, InMemoryTankRepository()),
             stop,
             client_factory=lambda s: FakeClient("ok", items, stop),
             wait=lambda _s, _t: asyncio.sleep(0),

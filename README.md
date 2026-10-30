@@ -68,7 +68,7 @@ Para una señal limpia, poner las tres tasas en `0` (y el ruido `SIM_*_NOISE_STD
 ## Flujo de punta a punta
 
 ```
-simulador --MQTT (QoS 1)--> mosquitto --> ingestor --> TimescaleDB <-- API (GET /tanks/{id}/readings)
+simulador --MQTT (QoS 1)--> mosquitto --> ingestor --> TimescaleDB <-- API (GET /tanks, /tanks/{id}/readings)
 ```
 
 El `ingestor` es un proceso aparte del API (`python -m fermon.ingestor`, servicio `ingestor` de
@@ -134,3 +134,49 @@ curl "localhost:8000/tanks/tank-1/readings?start=2026-01-01T00:00:00Z&end=2027-0
 `start` y `end` son instantes ISO-8601 con zona horaria; el rango es `[start, end)`. Aplicar las
 migraciones antes de publicar: sin la tabla, cada mensaje falla con un error permanente y se
 descarta con un ERROR en el log (ver la semántica de entrega anterior).
+
+## Tanques y CORS
+
+Los tanques se registran solos: la primera lectura válida de un tanque lo crea en la tabla `tanks`
+(`id`, `display_name` opcional, `first_seen_at`). La migración `0002` crea la tabla y la rellena con
+los tanques que ya tenían lecturas. No hay clave foránea desde `readings` (es una hypertable); la
+ingesta registra el tanque antes de guardar la lectura.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /tanks` | Lista de tanques ordenada por `id`, cada uno con su última lectura por medición |
+| `GET /tanks/{tank_id}` | Un tanque con la misma forma; `404` si nunca se registró |
+| `GET /tanks/{tank_id}/readings?start=&end=` | Lecturas crudas del rango `[start, end)` |
+
+```sh
+curl localhost:8000/tanks
+curl localhost:8000/tanks/tank-1
+```
+
+```json
+{
+  "id": "tank-1",
+  "display_name": null,
+  "first_seen_at": "2026-01-01T10:00:00Z",
+  "latest": {
+    "temperature": {"tank_id": "tank-1", "sensor_id": "tank-1-temp", "measurement": "temperature",
+                    "value": 19.5, "unit": "celsius", "recorded_at": "2026-01-01T12:05:00Z"},
+    "pressure": null,
+    "alcohol": null
+  }
+}
+```
+
+`latest.<medición>` es `null` si el tanque aún no reportó esa medición. Los errores usan la forma
+unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido, `422` para un
+`tank_id` en blanco). Todos los instantes se devuelven en UTC.
+
+### CORS
+
+`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET` y
+`POST`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
+`http://localhost:5173,http://localhost:3000`:
+
+```sh
+CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
+```

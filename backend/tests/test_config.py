@@ -33,3 +33,23 @@ def test_alembic_ini_path_defaults_to_the_source_tree_and_is_configurable(
     assert Settings().alembic_ini_path.name == "alembic.ini"
     monkeypatch.setenv("ALEMBIC_INI_PATH", "/opt/fermon/alembic.ini")
     assert str(Settings().alembic_ini_path) == "/opt/fermon/alembic.ini"
+
+
+def test_cors_origins_default_to_local_dashboard_dev_servers() -> None:
+    assert Settings().cors_origins == ["http://localhost:5173", "http://localhost:3000"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://a.example", ["https://a.example"]),
+        ("https://a.example, https://b.example ,", ["https://a.example", "https://b.example"]),
+        ('["https://a.example", "https://b.example"]', ["https://a.example", "https://b.example"]),
+    ],
+    ids=["single", "comma-separated", "json"],
+)
+def test_cors_origins_env_var_accepts_comma_separated_or_json(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", raw)
+    assert Settings().cors_origins == expected

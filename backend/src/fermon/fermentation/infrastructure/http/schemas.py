@@ -2,7 +2,8 @@ from datetime import UTC
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
-from fermon.fermentation.domain import Reading
+from fermon.fermentation.application import TankOverview
+from fermon.fermentation.domain import MeasurementType, Reading
 
 
 class ReadingIn(BaseModel):
@@ -37,6 +38,38 @@ class ReadingOut(BaseModel):
             value=reading.value,
             unit=reading.unit,
             recorded_at=reading.recorded_at.astimezone(UTC),
+        )
+
+
+class LatestReadingsOut(BaseModel):
+    """The newest reading of each measurement; null when the tank never reported it."""
+
+    temperature: ReadingOut | None
+    pressure: ReadingOut | None
+    alcohol: ReadingOut | None
+
+
+class TankOut(BaseModel):
+    id: str
+    display_name: str | None
+    first_seen_at: AwareDatetime
+    latest: LatestReadingsOut
+
+    @classmethod
+    def from_domain(cls, overview: TankOverview) -> "TankOut":
+        def newest(measurement: MeasurementType) -> ReadingOut | None:
+            reading = overview.latest.get(measurement)
+            return ReadingOut.from_domain(reading) if reading is not None else None
+
+        return cls(
+            id=overview.tank.id,
+            display_name=overview.tank.display_name,
+            first_seen_at=overview.tank.first_seen_at.astimezone(UTC),
+            latest=LatestReadingsOut(
+                temperature=newest(MeasurementType.TEMPERATURE),
+                pressure=newest(MeasurementType.PRESSURE),
+                alcohol=newest(MeasurementType.ALCOHOL),
+            ),
         )
 
 

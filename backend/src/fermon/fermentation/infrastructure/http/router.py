@@ -5,13 +5,16 @@ from pydantic import AwareDatetime
 
 from fermon.fermentation.application.ingest_reading import IngestReadingCommand
 from fermon.fermentation.infrastructure.http.dependencies import (
+    GetTankDep,
     IngestReadingDep,
     ListReadingsDep,
+    ListTanksDep,
 )
 from fermon.fermentation.infrastructure.http.schemas import (
     ErrorResponse,
     ReadingIn,
     ReadingOut,
+    TankOut,
 )
 
 router = APIRouter()
@@ -38,6 +41,21 @@ async def ingest_reading(
     if not result.created:
         response.status_code = status.HTTP_200_OK
     return ReadingOut.from_domain(result.reading)
+
+
+@router.get("/tanks")
+async def list_tanks(use_case: ListTanksDep) -> list[TankOut]:
+    """List every registered tank, sorted by id, with its latest reading per measurement."""
+    return [TankOut.from_domain(overview) for overview in await use_case.execute()]
+
+
+@router.get(
+    "/tanks/{tank_id}",
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def get_tank(tank_id: str, use_case: GetTankDep) -> TankOut:
+    """One tank with its latest reading per measurement; 404 if it was never registered."""
+    return TankOut.from_domain(await use_case.execute(tank_id))
 
 
 @router.get(

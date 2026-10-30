@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from fermon.fermentation.application import IngestReading
 from fermon.fermentation.infrastructure.mqtt import run_consumer
-from fermon.fermentation.infrastructure.persistence import SqlAlchemyReadingRepository
+from fermon.fermentation.infrastructure.persistence import (
+    SqlAlchemyReadingRepository,
+    SqlAlchemyTankRepository,
+)
 from fermon.fermentation.infrastructure.schema import (
     SchemaCheckError,
     SchemaState,
@@ -42,7 +45,10 @@ async def run(
     """
     engine = engine_factory(settings)
     config = alembic_config(ini_path=settings.alembic_ini_path)
-    ingest = IngestReading(SqlAlchemyReadingRepository(create_session_factory(engine)))
+    sessions = create_session_factory(engine)
+    ingest = IngestReading(
+        SqlAlchemyReadingRepository(sessions), SqlAlchemyTankRepository(sessions)
+    )
     try:
         # Not consuming while waiting keeps messages queued in the broker's persistent session.
         if await wait_for(lambda: schema_check(engine, config), stop):

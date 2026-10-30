@@ -1,0 +1,90 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fermon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fermon}
+      POSTGRES_DB: ${POSTGRES_DB:-fermon}
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fermon} -d ${POSTGRES_DB:-fermon}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  api:
+    build:
+      context: ./backend
+      target: dev
+    command: uvicorn fermon.main:app --reload --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://fermon:fermon@timescaledb:5432/fermon}
+      MQTT_HOST: ${MQTT_HOST:-mosquitto}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - api-venv:/app/.venv
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+
+  ingestor:
+    build:
+      context: ./backend
+      target: dev
+    command: uv run python -m fermon.ingestor
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://fermon:fermon@timescaledb:5432/fermon}
+      MQTT_HOST: ${MQTT_HOST:-mosquitto}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+    volumes:
+      - ./backend:/app
+      - ingestor-venv:/app/.venv
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+
+  simulator:
+    profiles: ["simulator"]
+    build:
+      context: ./simulator
+      target: dev
+    environment:
+      SIM_MQTT_HOST: ${SIM_MQTT_HOST:-mosquitto}
+      SIM_MQTT_PORT: ${SIM_MQTT_PORT:-1883}
+      SIM_TANKS: ${SIM_TANKS:-tank-1:ale,tank-2:lager}
+      SIM_TICK_INTERVAL_SECONDS: ${SIM_TICK_INTERVAL_SECONDS:-1}
+      SIM_ACCELERATION: ${SIM_ACCELERATION:-600}
+      SIM_SEED: ${SIM_SEED:-}
+      SIM_DROPOUT_RATE: ${SIM_DROPOUT_RATE:-0.02}
+      SIM_SPIKE_RATE: ${SIM_SPIKE_RATE:-0.01}
+      SIM_DISCONNECT_RATE: ${SIM_DISCONNECT_RATE:-0.005}
+    volumes:
+      - ./simulator:/app
+      - simulator-venv:/app/.venv
+    depends_on:
+      mosquitto:
+        condition: service_started
+
+volumes:
+  timescale-data:
+  api-venv:
+  ingestor-venv:
+  simulator-venv:

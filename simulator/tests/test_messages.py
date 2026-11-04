@@ -22,6 +22,12 @@ def test_topic_and_payload_match_contract() -> None:
     assert body["unit"] == "celsius"
 
 
+def test_topic_uses_given_prefix() -> None:
+    reading = Reading("tank-1-temp", "temperature", 18.5, NOW)
+    topic, _ = build_message("tank-1", reading, prefix="fermon-test")
+    assert topic == "fermon-test/tanks/tank-1/readings"
+
+
 @pytest.mark.parametrize(
     ("measurement", "unit"),
     [("temperature", "celsius"), ("pressure", "bar"), ("alcohol", "percent_abv")],

@@ -48,7 +48,7 @@ async def run_publisher(
                         tanks, sim_clock.elapsed_hours(), sim_clock.now(), injector
                     )
                     for tank_id, reading in batch:
-                        topic, payload = build_message(tank_id, reading)
+                        topic, payload = build_message(tank_id, reading, settings.topic_prefix)
                         await client.publish(topic, payload, qos=1)
                     await wait(stop, settings.tick_interval_seconds)
         except aiomqtt.MqttError as exc:

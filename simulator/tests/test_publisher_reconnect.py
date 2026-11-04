@@ -27,6 +27,7 @@ class FakeClient:
     def __init__(self, outcome: str) -> None:
         self.outcome = outcome
         self.published = 0
+        self.topics: set[str] = set()
 
     async def __aenter__(self) -> "FakeClient":
         if self.outcome == "fail":
@@ -45,6 +46,7 @@ class FakeClient:
         if self.outcome == "drop":
             raise aiomqtt.MqttError("connection lost")
         self.published += 1
+        self.topics.add(topic)
 
 
 async def run_script(outcomes: list[str]) -> list[float]:
@@ -114,6 +116,21 @@ async def test_publishes_readings_while_connected() -> None:
     )
     assert len(clients) == 1
     assert clients[0].published > 0
+    assert clients[0].topics == {"fermon/tanks/tank-1/readings"}
+
+
+async def test_publishes_under_configured_topic_prefix() -> None:
+    stop = asyncio.Event()
+    client = FakeClient("ok")
+
+    async def stop_after_first_tick(_stop: asyncio.Event, seconds: float) -> None:
+        stop.set()
+
+    settings = make_settings().model_copy(update={"topic_prefix": "fermon-test"})
+    await publisher.run_publisher(
+        settings, stop, client_factory=lambda host, port: client, wait=stop_after_first_tick
+    )
+    assert client.topics == {"fermon-test/tanks/tank-1/readings"}
 
 
 async def test_sleep_or_stop_returns_when_stopped() -> None:

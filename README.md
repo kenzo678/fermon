@@ -7,8 +7,9 @@ Todo el desarrollo se ejecuta dentro de Docker; no se requiere Python en el equi
 
 - `backend/`: API FastAPI con arquitectura hexagonal (`src/fermon/fermentation/{domain,application,infrastructure}`).
 - `simulator/`: simulador de dispositivos sensor (sensor + microcontrolador) que publica lecturas por MQTT.
+- `frontend/`: dashboard web (Vite + React + TypeScript + Tailwind), servido en desarrollo por Vite y en producción por nginx.
 - `mosquitto/`: configuración del broker MQTT (solo para desarrollo).
-- `docker-compose.yml`: servicios `api`, `ingestor`, `timescaledb`, `mosquitto` y `simulator` (este último bajo el perfil `simulator`).
+- `docker-compose.yml`: servicios `api`, `ingestor`, `frontend`, `timescaledb`, `mosquitto` y `simulator` (este último bajo el perfil `simulator`).
 - `.env.example`: variables de entorno; copiar a `.env` para personalizarlas.
 
 ## Comandos de desarrollo
@@ -291,3 +292,72 @@ async def main():
             print(message)
 asyncio.run(main())"
 ```
+
+## Frontend
+
+Se ejecuta dentro de Docker; no se requiere Node en el equipo anfitrión. La URL de la API se
+configura con `VITE_API_URL` (por defecto `http://localhost:8000`).
+
+```sh
+docker compose up -d frontend                          # servidor de desarrollo en http://localhost:5173
+docker compose run --rm --no-deps frontend npm test   # pruebas (Vitest + Testing Library + MSW)
+docker compose run --rm --no-deps frontend npm run lint
+docker compose run --rm --no-deps frontend npm run typecheck
+docker compose run --rm --no-deps frontend npm run build
+docker build --target prod -t fermon-frontend:prod frontend   # imagen de producción (nginx)
+```
+
+Al agregar dependencias, ejecutar `npm install` dentro del contenedor, reconstruir la imagen
+(`docker compose build frontend`) y recrear el volumen de `node_modules`, porque Docker solo lo
+inicializa desde la imagen cuando está vacío: `docker compose up -d -V frontend` (o
+`docker volume rm fermon_frontend-node-modules`).
+
+Rutas de la SPA: `/` (vista general de tanques) y `/tanks/:tankId` (detalle: tres gráficos
+ECharts con promedio y banda mín–máx de temperatura, presión y alcohol, y un selector de rango).
+Los rangos son "Last hour" y "Last 6 hours" (buckets de 1 minuto) y "Last 24 hours" y "Last 7 days"
+(buckets de 1 hora); todos quedan muy por debajo del límite de 10 000 puntos del backend. El rango
+elegido se guarda en la URL (`?range=1h|6h|24h|7d`, por defecto `24h`; un valor inválido vuelve al
+valor por defecto). Un tanque inexistente muestra "Tank not found". Cualquier otra ruta muestra
+"Page not found". Para servir las rutas
+directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
+
+
+### Pruebas e2e (Playwright)
+
+Corren contra el stack real con el simulador publicando, en Chromium de escritorio y en un
+viewport móvil (Pixel 7). El navegador vive dentro de la red de Compose (imagen oficial
+`mcr.microsoft.com/playwright:v1.64.1-noble`, misma versión que `@playwright/test`), así que no se
+instala ningún navegador en el equipo anfitrión.
+
+```sh
+docker compose run --rm api uv run alembic upgrade head   # primero las migraciones
+docker compose --profile simulator --profile e2e up -d timescaledb mosquitto api ingestor simulator frontend-e2e
+docker compose run --rm e2e                                # npx playwright test
+docker compose --profile simulator --profile e2e down
+```
+
+Prerrequisitos: migraciones aplicadas y simulador activo (las pruebas esperan tank-1 y tank-2 con
+lecturas). El servicio `e2e` espera a que `api` y `frontend-e2e` respondan (healthchecks) y un
+`globalSetup` espera hasta 90 s a que existan lecturas de tank-1 y tank-2; si no, falla con un mensaje
+claro. `frontend-e2e` es una copia de `frontend`
+con `VITE_API_URL=http://api:8000`, una dirección alcanzable desde ese navegador; el `frontend`
+normal sigue usando `localhost`. La API acepta el origen `http://frontend-e2e:5173` por defecto en
+`CORS_ORIGINS`; si defines esa variable en `.env`, incluye ese origen. Las trazas de las pruebas
+fallidas quedan en `frontend/test-results/`.
+
+### Actualizaciones en vivo
+
+La vista general y el detalle abren un WebSocket nativo por tanque (`/ws/tanks/{id}`, derivado de
+`VITE_API_URL`: `http` pasa a `ws`, `https` a `wss`, y una base vacía o relativa usa el origen de la
+página). Cada lectura nueva reemplaza la última lectura de su medición en las tarjetas solo si su
+`recorded_at` es más reciente (las antiguas o duplicadas se ignoran). Los gráficos se refrescan por
+REST como máximo una vez cada 15 s por tanque, no con cada lectura.
+
+El indicador junto al título muestra el estado: **Live** (todos los sockets abiertos),
+**Reconnecting…** (alguno conectando o reconectando, con espera de 1 s duplicada hasta 30 s y
+reiniciada tras un reintento exitoso) y **Offline** (sin conexión, o cierre definitivo con código
+4403/4404, que no se reintenta, en todos los tanques). El stream del backend es de mejor esfuerzo y no reenvía lo perdido,
+por lo que en cada reconexión el cliente invalida (y vuelve a pedir por REST) la lista, el detalle y
+las series agregadas de ese tanque. Las invalidaciones de la lista se agrupan (250 ms) cuando varios
+sockets reabren a la vez, y las series agregadas respetan el mismo límite de 15 s por tanque. Un
+tanque con cierre definitivo (4403/4404) no marca "Offline" mientras otros sigan transmitiendo.

@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 interface Props {
   children: ReactNode;
@@ -44,4 +44,10 @@ export class RouteErrorBoundary extends Component<Props, State> {
       </div>
     );
   }
+}
+
+/** Error boundary that resets on navigation, so a failure on one tank doesn't stick to the next. */
+export function RouteBoundary({ children }: Props) {
+  const { pathname } = useLocation();
+  return <RouteErrorBoundary key={pathname}>{children}</RouteErrorBoundary>;
 }

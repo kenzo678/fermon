@@ -1,10 +1,11 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Route, Routes, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { API_URL } from "../../shared/api";
 import type { AggregatedPoint, AggregatedReadings } from "../../shared/api";
+import { createFakeSocketHub } from "../../test/fakeSocket";
 import { makeTank } from "../../test/fixtures";
 import { renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
@@ -204,5 +205,18 @@ describe("TankDetailPage", () => {
     );
     renderWithProviders(<Page />, { route: "/tanks/tank-1" });
     expect(await screen.findByRole("alert")).toHaveTextContent("Too many points for bucket 1m");
+  });
+
+  it("shows the connection indicator and survives a terminal socket close", async () => {
+    useHappyPath();
+    const hub = createFakeSocketHub();
+    renderWithProviders(<Page />, { route: "/tanks/tank-1", socketFactory: hub.factory });
+    await screen.findAllByTestId("chart");
+    const socket = hub.latest("/ws/tanks/tank-1");
+    act(() => socket.open());
+    expect(screen.getByRole("status", { name: "Connection: Live" })).toBeInTheDocument();
+    act(() => socket.serverClose(4404));
+    expect(screen.getByRole("status", { name: "Connection: Offline" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("chart")).toHaveLength(3);
   });
 });

@@ -4,7 +4,8 @@ import { delay, http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { createQueryClient } from "../../app/queryClient";
 import { API_URL } from "../../shared/api";
-import { makeTank } from "../../test/fixtures";
+import { createFakeSocketHub } from "../../test/fakeSocket";
+import { makeReading, makeTank } from "../../test/fixtures";
 import { renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
 import { TanksOverviewPage } from "./TanksOverviewPage";
@@ -120,5 +121,28 @@ describe("TanksOverviewPage", () => {
     expect(screen.getByRole("status", { name: "Loading tanks" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "tank-1" })).toBeInTheDocument();
+  });
+  describe("live updates", () => {
+    it("shows the connection indicator and updates a card when a reading is pushed", async () => {
+      server.use(http.get(url, () => HttpResponse.json([makeTank("tank-1")])));
+      const hub = createFakeSocketHub();
+      renderWithProviders(<TanksOverviewPage />, { socketFactory: hub.factory });
+      await screen.findByRole("link", { name: "tank-1" });
+      expect(screen.getByRole("status", { name: "Connection: Reconnecting…" })).toBeInTheDocument();
+
+      const socket = hub.latest("/ws/tanks/tank-1");
+      act(() => socket.open());
+      expect(screen.getByRole("status", { name: "Connection: Live" })).toBeInTheDocument();
+      expect(screen.getByText("18.5 °C")).toBeInTheDocument();
+
+      act(() =>
+        socket.message(
+          JSON.stringify(makeReading("tank-1", "temperature", 21.3, "2026-03-01T10:05:00Z")),
+        ),
+      );
+      // TanStack Query notifies observers asynchronously.
+      expect(await screen.findByText("21.3 °C")).toBeInTheDocument();
+      expect(screen.queryByText("18.5 °C")).not.toBeInTheDocument();
+    });
   });
 });

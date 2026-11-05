@@ -4,7 +4,7 @@ import { TanksOverviewPage } from "../features/tanks";
 import { LoadingState } from "../features/tanks/components/LoadingState";
 import { AppShell } from "../shared/ui";
 import { NotFoundPage } from "./NotFoundPage";
-import { RouteErrorBoundary } from "./RouteErrorBoundary";
+import { RouteBoundary } from "./RouteErrorBoundary";
 
 // The detail page pulls in ECharts; loading it on demand keeps the overview bundle small on mobile.
 const TankDetailPage = lazy(() =>
@@ -19,11 +19,11 @@ export function AppRoutes() {
         <Route
           path="/tanks/:tankId"
           element={
-            <RouteErrorBoundary>
+            <RouteBoundary>
               <Suspense fallback={<LoadingState />}>
                 <TankDetailPage />
               </Suspense>
-            </RouteErrorBoundary>
+            </RouteBoundary>
           }
         />
         <Route path="*" element={<NotFoundPage />} />

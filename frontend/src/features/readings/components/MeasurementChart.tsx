@@ -37,6 +37,8 @@ export function buildSeriesOption(points: AggregatedPoint[], unit: string): ECha
         name: "Min",
         type: "line",
         stack: "band",
+        // Stack across signs: a cold crash can push the min below 0 °C.
+        stackStrategy: "all",
         data: pairs((p) => p.min),
         symbol: "none",
         lineStyle: { opacity: 0 },
@@ -46,6 +48,8 @@ export function buildSeriesOption(points: AggregatedPoint[], unit: string): ECha
         name: "Max",
         type: "line",
         stack: "band",
+        // Stack across signs: a cold crash can push the min below 0 °C.
+        stackStrategy: "all",
         data: pairs((p) => p.max - p.min),
         symbol: "none",
         lineStyle: { opacity: 0 },

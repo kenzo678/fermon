@@ -321,3 +321,20 @@ valor por defecto). Un tanque inexistente muestra "Tank not found". Cualquier ot
 "Page not found". Para servir las rutas
 directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
 
+
+### Actualizaciones en vivo
+
+La vista general y el detalle abren un WebSocket nativo por tanque (`/ws/tanks/{id}`, derivado de
+`VITE_API_URL`: `http` pasa a `ws`, `https` a `wss`, y una base vacía o relativa usa el origen de la
+página). Cada lectura nueva reemplaza la última lectura de su medición en las tarjetas solo si su
+`recorded_at` es más reciente (las antiguas o duplicadas se ignoran). Los gráficos se refrescan por
+REST como máximo una vez cada 15 s por tanque, no con cada lectura.
+
+El indicador junto al título muestra el estado: **Live** (todos los sockets abiertos),
+**Reconnecting…** (alguno conectando o reconectando, con espera de 1 s duplicada hasta 30 s y
+reiniciada tras un reintento exitoso) y **Offline** (sin conexión, o cierre definitivo con código
+4403/4404, que no se reintenta, en todos los tanques). El stream del backend es de mejor esfuerzo y no reenvía lo perdido,
+por lo que en cada reconexión el cliente invalida (y vuelve a pedir por REST) la lista, el detalle y
+las series agregadas de ese tanque. Las invalidaciones de la lista se agrupan (250 ms) cuando varios
+sockets reabren a la vez, y las series agregadas respetan el mismo límite de 15 s por tanque. Un
+tanque con cierre definitivo (4403/4404) no marca "Offline" mientras otros sigan transmitiendo.

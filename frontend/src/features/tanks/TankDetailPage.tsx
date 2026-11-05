@@ -1,16 +1,20 @@
 import { Link, useParams, useSearchParams } from "react-router";
 import {
+  ConnectionIndicator,
   DEFAULT_RANGE,
   MeasurementChart,
   RangeSelector,
   parseRange,
   useAggregatedReadingsQuery,
+  useLiveReadings,
 } from "../readings";
 import type { RangeValue } from "../readings";
 import { ApiError } from "../../shared/api";
 import { ErrorState } from "./components/ErrorState";
 import { MEASUREMENTS, MEASUREMENT_ORDER, formatDateTime } from "./format";
 import { useTankQuery } from "./useTankQuery";
+
+const NO_TANKS: string[] = [];
 
 const backLink = (
   <Link to="/" className="text-sm font-medium text-slate-700 underline">
@@ -24,6 +28,8 @@ export function TankDetailPage() {
   const range = parseRange(searchParams.get("range"));
   const tank = useTankQuery(tankId);
   const readings = useAggregatedReadingsQuery(tankId, range);
+  // A terminal close (e.g. 4404) just reads "Offline"; the REST 404 path owns the missing tank.
+  const liveStatus = useLiveReadings(tankId === "" ? NO_TANKS : [tankId]);
 
   const selectRange = (next: RangeValue) =>
     setSearchParams(
@@ -62,9 +68,12 @@ export function TankDetailPage() {
     <section className="space-y-6">
       <header className="space-y-1">
         {backLink}
-        <h2 className="text-xl font-semibold tracking-tight">
-          {tank.data.display_name ?? tank.data.id}
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold tracking-tight">
+            {tank.data.display_name ?? tank.data.id}
+          </h2>
+          <ConnectionIndicator status={liveStatus} />
+        </div>
         <p className="text-sm text-slate-600">{tank.data.id}</p>
         <p className="text-sm text-slate-600">First seen {formatDateTime(tank.data.first_seen_at)}</p>
       </header>

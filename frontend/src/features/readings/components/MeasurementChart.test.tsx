@@ -35,6 +35,9 @@ describe("buildSeriesOption", () => {
     expect(min.map((p) => p[1])).toEqual([18.1, 18.4]);
     expect(spread[0]?.[1]).toBeCloseTo(0.8);
     expect(byName("Min").stack).toBe(byName("Max").stack);
+    // Cold crashes take temperatures below 0 °C: the band must stack across signs.
+    expect(byName("Min").stackStrategy).toBe("all");
+    expect(byName("Max").stackStrategy).toBe("all");
   });
 
   it("formats the tooltip with value and unit", () => {

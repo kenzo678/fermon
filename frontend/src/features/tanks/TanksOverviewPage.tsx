@@ -1,3 +1,8 @@
+import { useMemo } from "react";
+// Deep imports on purpose: the readings barrel re-exports the ECharts-based charts, and pulling
+// it into the overview would undo the lazy split of the detail route.
+import { ConnectionIndicator } from "../readings/components/ConnectionIndicator";
+import { useLiveReadings } from "../readings/useLiveReadings";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorState } from "./components/ErrorState";
 import { LoadingState } from "./components/LoadingState";
@@ -6,11 +11,15 @@ import { useTanksQuery } from "./useTanksQuery";
 
 export function TanksOverviewPage() {
   const { data, error, isPending, refetch } = useTanksQuery();
+  const liveStatus = useLiveReadings(useMemo(() => data?.map((tank) => tank.id) ?? [], [data]));
 
   // Cached data wins over a failed background refetch: keep the grid and flag the stale state.
   return (
     <section className="space-y-4">
-      <h2 className="text-xl font-semibold tracking-tight">Tanks</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold tracking-tight">Tanks</h2>
+        {data !== undefined && <ConnectionIndicator status={liveStatus} />}
+      </div>
       {data !== undefined && error !== null && (
         <p
           role="status"

@@ -38,7 +38,7 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
   última lectura por medición, estados de carga, error y vacío.
 - [x] T3 — Detalle de tanque: ruta `/tanks/:id`, gráficos ECharts de temperatura, presión y alcohol
   desde el endpoint agregado, selector de rango y bucket (1m/1h), 404 de tanque.
-- [ ] T4 — En vivo: hook WebSocket con reconexión y relleno vía REST; la vista general y el detalle
+- [x] T4 — En vivo: hook WebSocket con reconexión y relleno vía REST; la vista general y el detalle
   se actualizan solos; indicador de conexión.
 - [ ] T5 — e2e con Playwright contra el stack con simulador; PR.
 
@@ -133,5 +133,44 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
   RED: 2 aserciones del gráfico + módulo del boundary inexistente; GREEN 87/87; lint, typecheck y
   build limpios.
 
+- Revisión RDD de la rama T1+T2+T3 desde `main` (7144 líneas, pedida por el hook): aprobada por el
+  usuario, **aprobada** y reconocida. Hallazgos sobre código de T3 corregidos dentro del commit de T4
+  (T3 ya estaba subido) por el orquestador con TDD:
+  - WARNING `R3-band-stack-negative-min`: la banda usa `stackStrategy: "all"` para mínimos negativos.
+  - SUGGESTION `R3-error-boundary-sticky-across-tanks`: `RouteBoundary` reinicia el boundary al
+    cambiar de URL (con `key` por `pathname`).
+  - SUGGESTION `R3-index-html-cache-stale-chunks`: nginx sirve el shell con `Cache-Control: no-cache`
+    (verificado con `curl -I` contra la imagen de producción en `/`, `/tanks/tank-1` e `/index.html`).
+  RED: 2 failed (banda y reinicio del boundary); GREEN 115/115.
+- T4 completada (ruta delegada, un escritor). `shared/realtime`: `wsUrlFor` (deriva ws/wss de la base
+  de la API con las reglas de `buildUrl`), `createReconnectingSocket` (backoff 1→30 s con reinicio al
+  abrir, JSON malformado descartado, 4403/4404 terminales, 1011 y cierres anormales reconectan),
+  `RealtimeProvider` como inyección del `socketFactory` (los tests usan `FakeSocket`).
+  `useLiveReadings`: un socket por tanque; actualiza la cache de la lista y del detalle solo con
+  lecturas estrictamente más nuevas (sin crear entradas); refresco de los agregados limitado a uno
+  cada 15 s por tanque; en cada reapertura invalida lista, detalle y agregados (relleno vía REST).
+  `ConnectionIndicator` Live / Reconnecting… / Offline en ambas páginas. Limitación: si cambia el
+  conjunto de tanques se recrean todos los sockets. Evidencia TDD: RED de import (realtime, hook) y
+  2 tests de páginas sin cablear; GREEN 114/114 (115 con las correcciones). lint, typecheck y build
+  limpios. Smoke: 3 mensajes en vivo de tank-1 recibidos por WebSocket desde el contenedor.
+
+- Revisión RDD de T4 (`569fde5`, 889 líneas) y de la rama desde `main` (8005 líneas, pedida por el
+  hook): ambas aprobadas por el usuario, **aprobadas** y reconocidas. Corregido dentro de T4 antes
+  del push:
+  - (ruta delegada) WARNING backfill al reconectar sin probar → MSW confirma lista, detalle y
+    agregados (caracterización: las claves ya eran correctas).
+  - (ruta delegada) `aggregateStatus` exportado: ignora sockets terminales (4403/4404); un tanque
+    eliminado ya no pone "Offline" la vista general. RED: 10 casos `aggregateStatus is not a function`.
+  - (ruta delegada) Reconexiones en ráfaga: invalidación de la lista con debounce de 250 ms y
+    `cancelRefetch: false`; el refresco de agregados al reconectar pasa por el mismo throttle de 15 s.
+    RED: `got 3` (refetch de lista) y `got 2` (agregados).
+  - (ruta delegada) Factory que lanza al crear el socket → reconecta con backoff (caracterización).
+  - (orquestador) SUGGESTION `R3-consumer-errors-logged-as-malformed`: parseo y consumo separados;
+    un error del consumidor se reporta como "Realtime message handler failed". RED observado.
+  - (orquestador) Regresión detectada: el overview importaba el barrel de `readings` y metía ECharts
+    en el bundle principal (853 kB). Imports directos + regla ESLint `no-restricted-imports` que lo
+    impide (probada con un archivo de prueba que la dispara). Bundle principal 303 kB (96 kB gzip).
+  GREEN 132/132; lint, typecheck y build limpios.
+
 ## Próximo paso
-T4 — actualizaciones en vivo por WebSocket.
+T5 — e2e con Playwright y PR.

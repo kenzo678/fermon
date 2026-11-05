@@ -40,7 +40,7 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
   desde el endpoint agregado, selector de rango y bucket (1m/1h), 404 de tanque.
 - [x] T4 — En vivo: hook WebSocket con reconexión y relleno vía REST; la vista general y el detalle
   se actualizan solos; indicador de conexión.
-- [ ] T5 — e2e con Playwright contra el stack con simulador; PR.
+- [x] T5 — e2e con Playwright contra el stack con simulador; PR.
 
 ## Criterios de aceptación
 - Con el simulador corriendo, la vista general muestra tank-1 y tank-2 y se actualiza sola.
@@ -172,5 +172,30 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
     impide (probada con un archivo de prueba que la dispara). Bundle principal 303 kB (96 kB gzip).
   GREEN 132/132; lint, typecheck y build limpios.
 
+- T5 completada (ruta delegada, un escritor). Dependencia en commit propio `3f0fc3f`
+  (`@playwright/test` 1.64.1 fijado; imagen `mcr.microsoft.com/playwright:v1.64.1-noble`). Servicios
+  `frontend-e2e` (gemelo de `frontend` con `VITE_API_URL=http://api:8000`, sin puerto publicado) y
+  `e2e` bajo el perfil `e2e`; `CORS_ORIGINS` por defecto suma `http://frontend-e2e:5173`;
+  `server.allowedHosts` de Vite; `e2e/` fuera de Vitest y dentro de typecheck y lint. 6 tests x 2
+  proyectos (Chromium escritorio, Pixel 7): vista general con 3 mediciones y "Live", actualización en
+  vivo sin recargar, detalle con `canvas` en los 3 gráficos, `?range=1h`, "Tank not found", y layout
+  responsive (una columna en celular, dos en escritorio). Resultado: 12 passed en 2 corridas
+  seguidas contra el stack real con simulador; sin bugs de la app. Unitarios 132/132; lint y
+  typecheck limpios (verificado también por el orquestador).
+
+- Revisión RDD de la rama completa desde `main` (8488 líneas): `lens_context_budget_exceeded`, sin
+  revisión creada. Revisión de T5 solo (`06fdd63`, 195 líneas): aprobada por el usuario, **aprobada**
+  y reconocida. Corregido inline por el orquestador (amend, sin otra ronda):
+  - WARNING `R3-e2e-readiness`: healthchecks en `api` (`/health`) y `frontend-e2e` (wget a
+    `127.0.0.1`; `localhost` resolvía a IPv6 y fallaba), `e2e` espera `service_healthy`, y un
+    `globalSetup` espera hasta 90 s a que tank-1 y tank-2 tengan lecturas, con un error claro si no.
+  - WARNING `R3-exact-tank-count`: el test de layout exige al menos los tanques esperados.
+  - SUGGESTION `R3-live-update-weak-baseline`: se afirma que el `datetime` inicial no es nulo.
+  - SUGGESTION `R3-readme-migration-order`: README con las migraciones primero (el ingestor ya
+    espera el esquema desde `ingestor-transient-errors`, pero así el primer arranque es determinista).
+  Prueba: arranque en frío (stack abajo → `up` → e2e inmediato) 12 passed en 2 corridas; unitarios
+  132/132; lint y typecheck limpios. Sin RED propio: son cambios de infraestructura de tests.
+- Entrega: push de la rama y PR a `main`.
+
 ## Próximo paso
-T5 — e2e con Playwright y PR.
+Merge del PR (decisión del usuario).

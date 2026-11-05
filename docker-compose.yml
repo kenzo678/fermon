@@ -70,6 +70,7 @@ services:
     environment:
       SIM_MQTT_HOST: ${SIM_MQTT_HOST:-mosquitto}
       SIM_MQTT_PORT: ${SIM_MQTT_PORT:-1883}
+      SIM_TOPIC_PREFIX: ${SIM_TOPIC_PREFIX:-fermon}
       SIM_TANKS: ${SIM_TANKS:-tank-1:ale,tank-2:lager}
       SIM_TICK_INTERVAL_SECONDS: ${SIM_TICK_INTERVAL_SECONDS:-1}
       SIM_ACCELERATION: ${SIM_ACCELERATION:-600}

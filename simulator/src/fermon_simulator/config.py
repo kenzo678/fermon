@@ -4,7 +4,10 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fermon_simulator.faults import FaultConfig
+from fermon_simulator.messages import DEFAULT_TOPIC_PREFIX
 from fermon_simulator.profiles import PRESETS
+
+_FORBIDDEN_PREFIX_CHARS = ("+", "#", "/")
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,8 @@ class Settings(BaseSettings):
 
     mqtt_host: str = "localhost"
     mqtt_port: int = 1883
+    # Must match the backend's MQTT_TOPIC_PREFIX for the ingestor to receive the readings.
+    topic_prefix: str = DEFAULT_TOPIC_PREFIX
     tick_interval_seconds: float = Field(default=1.0, gt=0)
     acceleration: float = Field(default=600.0, gt=0)  # 1 real second = 10 simulated minutes
     seed: int | None = None
@@ -51,6 +56,20 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_seed_is_none(cls, value: object) -> object:
         return None if value == "" else value
+
+    @field_validator("topic_prefix")
+    @classmethod
+    def _validate_topic_prefix(cls, value: str) -> str:
+        if (
+            not value
+            or value != value.strip()
+            or any(char in value for char in _FORBIDDEN_PREFIX_CHARS)
+        ):
+            raise ValueError(
+                "SIM_TOPIC_PREFIX must be a single non-empty topic level without "
+                "'+', '#', '/' or surrounding whitespace"
+            )
+        return value
 
     @field_validator("tanks")
     @classmethod

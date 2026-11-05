@@ -27,7 +27,22 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.mqtt_port == 1883
     assert settings.acceleration == 600
     assert settings.seed is None
+    assert settings.topic_prefix == "fermon"
     assert [t.tank_id for t in settings.tank_specs] == ["tank-1", "tank-2"]
+
+
+def test_reads_topic_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIM_TOPIC_PREFIX", "fermon-test")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.topic_prefix == "fermon-test"
+
+
+@pytest.mark.parametrize("prefix", ["", " fermon", "fermon ", "a/b", "fer+mon", "fermon#"])
+def test_invalid_topic_prefix_fails_at_load(monkeypatch: pytest.MonkeyPatch, prefix: str) -> None:
+    # Same rule as the backend's MQTT_TOPIC_PREFIX: one non-empty topic level, no wildcards.
+    monkeypatch.setenv("SIM_TOPIC_PREFIX", prefix)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]
 
 
 def test_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:

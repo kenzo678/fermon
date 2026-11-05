@@ -55,6 +55,7 @@ Variables de entorno (prefijo `SIM_`, con valores por defecto en `docker-compose
 | Variable | Defecto | Descripción |
 | --- | --- | --- |
 | `SIM_MQTT_HOST` / `SIM_MQTT_PORT` | `mosquitto` / `1883` | Broker MQTT |
+| `SIM_TOPIC_PREFIX` | `fermon` | Prefijo del tópico; debe coincidir con `MQTT_TOPIC_PREFIX` del ingestor. Las pruebas de integración usan `fermon-test` para no escribir en la base de desarrollo |
 | `SIM_TANKS` | `tank-1:ale,tank-2:lager` | Tanques `id:perfil` separados por coma |
 | `SIM_TICK_INTERVAL_SECONDS` | `1` | Segundos reales entre ticks |
 | `SIM_ACCELERATION` | `600` | Factor de aceleración del tiempo de fermentación |

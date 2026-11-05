@@ -22,11 +22,16 @@ class Reading:
     recorded_at: datetime
 
 
-def topic_for(tank_id: str) -> str:
-    return f"fermon/tanks/{tank_id}/readings"
+DEFAULT_TOPIC_PREFIX = "fermon"
 
 
-def build_message(tank_id: str, reading: Reading) -> tuple[str, bytes]:
+def topic_for(tank_id: str, prefix: str = DEFAULT_TOPIC_PREFIX) -> str:
+    return f"{prefix}/tanks/{tank_id}/readings"
+
+
+def build_message(
+    tank_id: str, reading: Reading, prefix: str = DEFAULT_TOPIC_PREFIX
+) -> tuple[str, bytes]:
     if reading.recorded_at.tzinfo is None:
         raise ValueError("recorded_at must be timezone-aware")
     body = {
@@ -36,4 +41,4 @@ def build_message(tank_id: str, reading: Reading) -> tuple[str, bytes]:
         "unit": UNITS[reading.measurement],
         "recorded_at": reading.recorded_at.astimezone(UTC).isoformat(),
     }
-    return topic_for(tank_id), json.dumps(body).encode()
+    return topic_for(tank_id, prefix), json.dumps(body).encode()

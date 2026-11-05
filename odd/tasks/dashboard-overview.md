@@ -34,7 +34,7 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
 - [x] T1 — Scaffold de `frontend/`: Vite + React + TS, Tailwind, ESLint, Vitest + Testing Library +
   MSW, cliente de API tipado, Dockerfile multi-stage (dev / nginx), servicio en Compose, layout
   responsive base con un test.
-- [ ] T2 — Vista general de tanques: `GET /tanks` con TanStack Query, tarjetas responsive con la
+- [x] T2 — Vista general de tanques: `GET /tanks` con TanStack Query, tarjetas responsive con la
   última lectura por medición, estados de carga, error y vacío.
 - [ ] T3 — Detalle de tanque: ruta `/tanks/:id`, gráficos ECharts de temperatura, presión y alcohol
   desde el endpoint agregado, selector de rango y bucket (1m/1h), 404 de tanque.
@@ -82,5 +82,27 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
   RED: 3 failed (los dos aborts durante el cuerpo y la base sin esquema); GREEN 21/21; lint,
   typecheck y build limpios.
 
+- T2 completada (ruta delegada, un escritor). Dependencias en commit propio `7d45e06`
+  (`@tanstack/react-query` 5.106.0, `react-router` 8.5.1). Rutas `/`, `/tanks/:tankId` (placeholder
+  hasta T3) y no encontrada. `shouldRetry`: nunca reintenta `ApiError` 4xx; red y 5xx hasta 2
+  reintentos. `features/tanks`: `fetchTanks`/`tankKeys`, `useTanksQuery`, contenedor
+  `TanksOverviewPage`, presentacionales `TankCard`, `TankGrid` (1/2/3–4 columnas), `EmptyState`,
+  `ErrorState` (reintento), `LoadingState`. Unidades fijas por medición (°C, bar, % ABV), "—" sin
+  lectura, horas absolutas en `<time>`. Accesibilidad: `ul`/`li`, `article`, `h2`/`h3`,
+  `role=status`/`alert`. Evidencia TDD: RED 5 archivos con "Failed to resolve import" (RED de
+  import); GREEN 46/46; lint, typecheck y build limpios. Smoke: SPA en 5173, `/tanks` con tank-1 y
+  tank-2. Spot check del orquestador: 46 passed. Tamaño ~624 líneas (mitad tests).
+
+- Revisión RDD de T2 (`b660f10`, 635 líneas): aprobada por el usuario, **aprobada** y reconocida.
+  Corregido inline con TDD por el orquestador (amend):
+  - WARNING `R3-background-refetch-error-hides-data`: los datos en cache ganan sobre un refetch
+    fallido; se mantiene la grilla y se muestra un aviso no bloqueante "Couldn't refresh".
+  - WARNING `R3-invalid-date-throws`: `formatDateTime` devuelve "—" ante una fecha malformada.
+  - SUGGESTION `R3-retry-no-feedback`: no aplica en TanStack Query v5 (un error sin datos vuelve a
+    `pending` al reintentar y se ve el estado de carga); se fijó con un test de caracterización.
+  - SUGGESTION `R3-readme-nginx-fallback-unproved`: ya cubierto, `nginx.conf` tiene
+    `try_files $uri /index.html` desde T1.
+  RED: 3 failed; GREEN 50/50; lint, typecheck y build limpios.
+
 ## Próximo paso
-T2 — vista general de tanques.
+T3 — detalle de tanque con gráficos.

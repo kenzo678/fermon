@@ -311,3 +311,8 @@ Al agregar dependencias, ejecutar `npm install` dentro del contenedor, reconstru
 (`docker compose build frontend`) y recrear el volumen de `node_modules`, porque Docker solo lo
 inicializa desde la imagen cuando está vacío: `docker compose up -d -V frontend` (o
 `docker volume rm fermon_frontend-node-modules`).
+
+Rutas de la SPA: `/` (vista general de tanques) y `/tanks/:tankId` (detalle; por ahora un
+marcador de posición). Cualquier otra ruta muestra "Page not found". Para servir las rutas
+directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
+

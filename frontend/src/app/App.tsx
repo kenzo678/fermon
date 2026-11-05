@@ -1,10 +1,16 @@
-import { AppShell } from "../shared/ui";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
+import { BrowserRouter } from "react-router";
+import { AppRoutes } from "./AppRoutes";
+import { createQueryClient } from "./queryClient";
 
-// Routing and data providers are added with the first feature views.
 export function App() {
+  const [queryClient] = useState(() => createQueryClient());
   return (
-    <AppShell>
-      <p className="text-slate-600">Dashboard coming soon.</p>
-    </AppShell>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }

@@ -16,3 +16,10 @@ build/
 
 # Local agent tooling
 .atl/
+
+# Frontend
+node_modules/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo

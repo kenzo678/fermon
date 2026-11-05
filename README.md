@@ -7,8 +7,9 @@ Todo el desarrollo se ejecuta dentro de Docker; no se requiere Python en el equi
 
 - `backend/`: API FastAPI con arquitectura hexagonal (`src/fermon/fermentation/{domain,application,infrastructure}`).
 - `simulator/`: simulador de dispositivos sensor (sensor + microcontrolador) que publica lecturas por MQTT.
+- `frontend/`: dashboard web (Vite + React + TypeScript + Tailwind), servido en desarrollo por Vite y en producción por nginx.
 - `mosquitto/`: configuración del broker MQTT (solo para desarrollo).
-- `docker-compose.yml`: servicios `api`, `ingestor`, `timescaledb`, `mosquitto` y `simulator` (este último bajo el perfil `simulator`).
+- `docker-compose.yml`: servicios `api`, `ingestor`, `frontend`, `timescaledb`, `mosquitto` y `simulator` (este último bajo el perfil `simulator`).
 - `.env.example`: variables de entorno; copiar a `.env` para personalizarlas.
 
 ## Comandos de desarrollo
@@ -291,3 +292,22 @@ async def main():
             print(message)
 asyncio.run(main())"
 ```
+
+## Frontend
+
+Se ejecuta dentro de Docker; no se requiere Node en el equipo anfitrión. La URL de la API se
+configura con `VITE_API_URL` (por defecto `http://localhost:8000`).
+
+```sh
+docker compose up -d frontend                          # servidor de desarrollo en http://localhost:5173
+docker compose run --rm --no-deps frontend npm test   # pruebas (Vitest + Testing Library + MSW)
+docker compose run --rm --no-deps frontend npm run lint
+docker compose run --rm --no-deps frontend npm run typecheck
+docker compose run --rm --no-deps frontend npm run build
+docker build --target prod -t fermon-frontend:prod frontend   # imagen de producción (nginx)
+```
+
+Al agregar dependencias, ejecutar `npm install` dentro del contenedor, reconstruir la imagen
+(`docker compose build frontend`) y recrear el volumen de `node_modules`, porque Docker solo lo
+inicializa desde la imagen cuando está vacío: `docker compose up -d -V frontend` (o
+`docker volume rm fermon_frontend-node-modules`).

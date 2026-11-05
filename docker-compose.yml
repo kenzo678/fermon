@@ -85,8 +85,23 @@ services:
       mosquitto:
         condition: service_started
 
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      - api
+
 volumes:
   timescale-data:
   api-venv:
   ingestor-venv:
   simulator-venv:
+  frontend-node-modules:

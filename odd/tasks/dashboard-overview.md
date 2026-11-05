@@ -36,7 +36,7 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
   responsive base con un test.
 - [x] T2 — Vista general de tanques: `GET /tanks` con TanStack Query, tarjetas responsive con la
   última lectura por medición, estados de carga, error y vacío.
-- [ ] T3 — Detalle de tanque: ruta `/tanks/:id`, gráficos ECharts de temperatura, presión y alcohol
+- [x] T3 — Detalle de tanque: ruta `/tanks/:id`, gráficos ECharts de temperatura, presión y alcohol
   desde el endpoint agregado, selector de rango y bucket (1m/1h), 404 de tanque.
 - [ ] T4 — En vivo: hook WebSocket con reconexión y relleno vía REST; la vista general y el detalle
   se actualizan solos; indicador de conexión.
@@ -104,5 +104,34 @@ cambios en el backend (salvo lo estrictamente necesario, consultando antes).
     `try_files $uri /index.html` desde T1.
   RED: 3 failed; GREEN 50/50; lint, typecheck y build limpios.
 
+- Revisión RDD de la rama T1+T2 desde `main` (6208 líneas, pedida por el hook): aprobada por el
+  usuario, **aprobada** y reconocida. Hallazgos sobre código de T2 corregidos dentro del commit de T3
+  (T2 ya estaba subido; se evita el force push):
+  - WARNING `R3-newest-timestamp-malformed-sticks`: `newestTimestamp` ignora fechas malformadas en
+    cualquier posición. RED `expected 'garbage' to be '2026-01-01T13:00:00Z'`.
+  - SUGGESTION `R3-no-retry-proved-by-sleep`: tests puros y deterministas de `shouldRetry` (400/404/
+    422/499 nunca; 0/500/503 y no-API hasta 2). De caracterización (la lógica ya era correcta).
+- T3 completada (ruta delegada, un escritor + ajustes del orquestador). Dependencia en commit propio
+  `7f40f6f` (echarts 6.1.0). `features/readings`: `range.ts` (`rangeToQuery`, `parseRange`; 1h/6h en
+  1m, 24h/7d en 1h, máx. 360 puntos), `?range=` en la URL (24h por defecto), `RangeSelector`
+  (radiogroup), `TimeSeriesChart` (ECharts por módulos, `ResizeObserver`, dispose),
+  `MeasurementChart` (promedio + banda mín–máx, "No data in this range"),
+  `useAggregatedReadingsQuery` ("now" calculado por request dentro de `queryFn`). `TankDetailPage`
+  con encabezado, 404 "Tank not found" y errores con reintento. Ajuste del orquestador: la ruta de
+  detalle se carga de forma diferida (`React.lazy`), así ECharts no entra en el bundle principal:
+  principal 298 kB (94 kB gzip), detalle 552 kB (186 kB gzip; queda el aviso de chunk > 500 kB).
+  Evidencia TDD: RED de import ("Failed to resolve import ./range", "./MeasurementChart", etc.);
+  GREEN 85/85; lint, typecheck y build limpios. Smoke: el endpoint agregado devuelve puntos 1m para
+  tank-1. Sin probar: renderizado real del canvas (jsdom no tiene canvas; queda para el e2e de T5).
+
+- Revisión RDD de T3 (`d0fc347`, 874 líneas): aprobada por el usuario, **aprobada** y reconocida.
+  Corregido inline con TDD por el orquestador (amend):
+  - WARNING `R3-lazy-detail-no-error-boundary`: `RouteErrorBoundary` alrededor de la ruta diferida;
+    si el chunk no carga se muestra "This page failed to load" con "Reload" y "Back to tanks".
+  - SUGGESTION `R3-setoption-notmerge-resets-zoom`: `setOption(option, { replaceMerge: ["series"] })`
+    conserva el zoom del usuario en los refetch (importante para T4).
+  RED: 2 aserciones del gráfico + módulo del boundary inexistente; GREEN 87/87; lint, typecheck y
+  build limpios.
+
 ## Próximo paso
-T3 — detalle de tanque con gráficos.
+T4 — actualizaciones en vivo por WebSocket.

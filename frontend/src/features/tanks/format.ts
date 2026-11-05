@@ -34,12 +34,16 @@ export function formatDateTime(iso: string): string {
   return Number.isNaN(date.getTime()) ? "—" : dateTime.format(date);
 }
 
-/** Newest recorded_at among the given readings (ISO-8601 UTC strings compare chronologically). */
+/** Newest valid recorded_at among the given readings; malformed timestamps are ignored. */
 export function newestTimestamp(readings: (Reading | null)[]): string | null {
   let newest: string | null = null;
+  let newestMs = Number.NEGATIVE_INFINITY;
   for (const reading of readings) {
-    if (reading && (newest === null || Date.parse(reading.recorded_at) > Date.parse(newest))) {
+    const ms = reading ? Date.parse(reading.recorded_at) : Number.NaN;
+    // Malformed timestamps are skipped so they can never mask a valid, newer one.
+    if (reading && !Number.isNaN(ms) && ms > newestMs) {
       newest = reading.recorded_at;
+      newestMs = ms;
     }
   }
   return newest;

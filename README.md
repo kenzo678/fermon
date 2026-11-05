@@ -312,7 +312,12 @@ Al agregar dependencias, ejecutar `npm install` dentro del contenedor, reconstru
 inicializa desde la imagen cuando está vacío: `docker compose up -d -V frontend` (o
 `docker volume rm fermon_frontend-node-modules`).
 
-Rutas de la SPA: `/` (vista general de tanques) y `/tanks/:tankId` (detalle; por ahora un
-marcador de posición). Cualquier otra ruta muestra "Page not found". Para servir las rutas
+Rutas de la SPA: `/` (vista general de tanques) y `/tanks/:tankId` (detalle: tres gráficos
+ECharts con promedio y banda mín–máx de temperatura, presión y alcohol, y un selector de rango).
+Los rangos son "Last hour" y "Last 6 hours" (buckets de 1 minuto) y "Last 24 hours" y "Last 7 days"
+(buckets de 1 hora); todos quedan muy por debajo del límite de 10 000 puntos del backend. El rango
+elegido se guarda en la URL (`?range=1h|6h|24h|7d`, por defecto `24h`; un valor inválido vuelve al
+valor por defecto). Un tanque inexistente muestra "Tank not found". Cualquier otra ruta muestra
+"Page not found". Para servir las rutas
 directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
 

@@ -13,7 +13,11 @@ from fermon.fermentation.domain import MeasurementType, Reading, Tank
 from fermon.fermentation.infrastructure.http.dependencies import get_get_tank, get_reading_feed
 from fermon.main import create_app
 from fermon.shared.config import Settings
-from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
+from tests.fermentation.fakes import (
+    InMemoryBatchRepository,
+    InMemoryReadingRepository,
+    InMemoryTankRepository,
+)
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 ALLOWED = "http://localhost:5173"
@@ -57,7 +61,9 @@ def client(feed: FakeFeed) -> TestClient:
     tanks, readings = InMemoryTankRepository(), InMemoryReadingRepository()
     tanks.tanks["tank-1"] = Tank(id="tank-1", display_name=None, first_seen_at=T0)
     app = create_app(Settings(cors_origins=[ALLOWED]))
-    app.dependency_overrides[get_get_tank] = lambda: GetTank(tanks, readings)
+    app.dependency_overrides[get_get_tank] = lambda: GetTank(
+        tanks, readings, InMemoryBatchRepository()
+    )
     app.dependency_overrides[get_reading_feed] = lambda: feed
     return TestClient(app)
 

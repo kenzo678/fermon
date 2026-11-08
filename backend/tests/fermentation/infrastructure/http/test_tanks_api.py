@@ -14,7 +14,11 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_list_tanks,
 )
 from fermon.main import create_app
-from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
+from tests.fermentation.fakes import (
+    InMemoryBatchRepository,
+    InMemoryReadingRepository,
+    InMemoryTankRepository,
+)
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -22,10 +26,11 @@ T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
     readings, tanks = InMemoryReadingRepository(), InMemoryTankRepository()
+    batches = InMemoryBatchRepository()
     app: FastAPI = create_app()
     app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(readings, tanks)
-    app.dependency_overrides[get_list_tanks] = lambda: ListTanks(tanks, readings)
-    app.dependency_overrides[get_get_tank] = lambda: GetTank(tanks, readings)
+    app.dependency_overrides[get_list_tanks] = lambda: ListTanks(tanks, readings, batches)
+    app.dependency_overrides[get_get_tank] = lambda: GetTank(tanks, readings, batches)
     ingest = IngestReading(readings, tanks)
     for tank, measurement, value, at in [
         ("tank-2", MeasurementType.ALCOHOL, 4.0, T0),
@@ -55,6 +60,7 @@ TANK_1 = {
     "id": "tank-1",
     "display_name": None,
     "first_seen_at": "2026-01-01T12:00:00Z",
+    "active_batch": None,
     "latest": {
         "temperature": reading_json(
             "tank-1", "temperature", 19.5, "celsius", "2026-01-01T12:05:00Z"

@@ -1,9 +1,14 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from uuid import UUID
 
 from fermon.fermentation.domain import (
+    ActiveBatchConflictError,
     AggregatedPoint,
     AggregationBucket,
+    Batch,
+    BatchStatus,
+    ConcurrentBatchUpdateError,
     MeasurementType,
     Reading,
     Tank,
@@ -84,3 +89,51 @@ class InMemoryTankRepository:
 
     async def list(self) -> list[Tank]:
         return sorted(self.tanks.values(), key=lambda t: t.id)
+
+
+class InMemoryBatchRepository:
+    """Mirrors the SQL adapter, including the one-active-batch-per-tank invariant."""
+
+    def __init__(self) -> None:
+        self.batches: dict[UUID, Batch] = {}
+
+    def _check_active(self, batch: Batch) -> None:
+        if batch.status is BatchStatus.ACTIVE and any(
+            other.tank_id == batch.tank_id
+            and other.status is BatchStatus.ACTIVE
+            and other.id != batch.id
+            for other in self.batches.values()
+        ):
+            raise ActiveBatchConflictError(batch.tank_id)
+
+    async def add(self, batch: Batch) -> None:
+        self._check_active(batch)
+        self.batches[batch.id] = batch
+
+    async def update(self, batch: Batch) -> None:
+        current = self.batches.get(batch.id)
+        if current is None or current.version != batch.version - 1:
+            raise ConcurrentBatchUpdateError(str(batch.id))
+        self._check_active(batch)
+        self.batches[batch.id] = batch
+
+    async def get(self, batch_id: UUID) -> Batch | None:
+        return self.batches.get(batch_id)
+
+    async def list(
+        self, tank_id: str | None = None, status: BatchStatus | None = None
+    ) -> list[Batch]:
+        matching = [
+            b
+            for b in self.batches.values()
+            if (tank_id is None or b.tank_id == tank_id) and (status is None or b.status is status)
+        ]
+        return sorted(matching, key=lambda b: (b.created_at, str(b.id)), reverse=True)
+
+    async def get_active(self, tank_id: str) -> Batch | None:
+        found = await self.list(tank_id=tank_id, status=BatchStatus.ACTIVE)
+        return found[0] if found else None
+
+    async def active_for(self, tank_ids: Sequence[str]) -> dict[str, Batch]:
+        active = await self.list(status=BatchStatus.ACTIVE)
+        return {b.tank_id: b for b in active if b.tank_id in tank_ids}

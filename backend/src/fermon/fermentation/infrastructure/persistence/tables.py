@@ -1,14 +1,19 @@
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Column,
     DateTime,
     Double,
+    ForeignKey,
     Index,
+    Integer,
     MetaData,
     Table,
     Text,
     UniqueConstraint,
+    Uuid,
     desc,
+    text,
 )
 
 metadata = MetaData()
@@ -42,6 +47,38 @@ tanks = Table(
     Column("id", Text, primary_key=True),
     Column("display_name", Text, nullable=True),
     Column("first_seen_at", DateTime(timezone=True), nullable=False),
+)
+
+batches = Table(
+    "batches",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tank_id", Text, ForeignKey("tanks.id", name="fk_batches_tank_id"), nullable=False),
+    Column("beer_name", Text, nullable=False),
+    Column("style", Text, nullable=False),
+    Column("template", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("temperature_min", Double, nullable=False),
+    Column("temperature_max", Double, nullable=False),
+    Column("pressure_max", Double, nullable=False),
+    Column("pressure_min", Double, nullable=True),
+    Column("expected_final_abv", Double, nullable=True),
+    Column("planned_start", DateTime(timezone=True), nullable=False),
+    Column("expected_end", DateTime(timezone=True), nullable=True),
+    Column("started_at", DateTime(timezone=True), nullable=True),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    Column("notes", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("version", Integer, nullable=False, server_default=text("1")),
+    CheckConstraint("status IN ('planned', 'active', 'finished')", name="ck_batches_status"),
+    CheckConstraint("template IN ('ale', 'lager', 'custom')", name="ck_batches_template"),
+    Index(
+        "uq_batches_one_active_per_tank",
+        "tank_id",
+        unique=True,
+        postgresql_where=text("status = 'active'"),
+    ),
+    Index("ix_batches_tank_id_created_at", "tank_id", desc("created_at")),
 )
 
 

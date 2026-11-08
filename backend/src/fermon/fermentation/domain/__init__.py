@@ -4,8 +4,20 @@ from fermon.fermentation.domain.aggregation import (
     AggregationBucket,
     validate_aggregation_range,
 )
+from fermon.fermentation.domain.batch import (
+    Batch,
+    BatchStatus,
+    StyleTemplate,
+    TargetRanges,
+    template_targets,
+)
 from fermon.fermentation.domain.errors import (
+    ActiveBatchConflictError,
+    BatchNotFoundError,
+    ConcurrentBatchUpdateError,
     DomainError,
+    InvalidBatchError,
+    InvalidBatchTransitionError,
     InvalidIdentifierError,
     InvalidReadingError,
     InvalidTankError,
@@ -20,6 +32,16 @@ from fermon.fermentation.domain.tank import Tank
 from fermon.fermentation.domain.time_range import validate_time_range
 
 __all__ = [
+    "ActiveBatchConflictError",
+    "ConcurrentBatchUpdateError",
+    "Batch",
+    "BatchNotFoundError",
+    "BatchStatus",
+    "InvalidBatchError",
+    "InvalidBatchTransitionError",
+    "StyleTemplate",
+    "TargetRanges",
+    "template_targets",
     "MAX_POINTS",
     "AggregatedPoint",
     "AggregationBucket",

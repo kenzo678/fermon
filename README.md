@@ -160,6 +160,7 @@ curl localhost:8000/tanks/tank-1
   "id": "tank-1",
   "display_name": null,
   "first_seen_at": "2026-01-01T10:00:00Z",
+  "active_batch": null,
   "latest": {
     "temperature": {"tank_id": "tank-1", "sensor_id": "tank-1-temp", "measurement": "temperature",
                     "value": 19.5, "unit": "celsius", "recorded_at": "2026-01-01T12:05:00Z"},
@@ -169,19 +170,59 @@ curl localhost:8000/tanks/tank-1
 }
 ```
 
-`latest.<medición>` es `null` si el tanque aún no reportó esa medición. Los errores usan la forma
+`latest.<medición>` es `null` si el tanque aún no reportó esa medición. `active_batch` es el resumen
+del lote activo del tanque (ver [Lotes](#lotes)) o `null`. Los errores usan la forma
 unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido, `422` para un
 `tank_id` en blanco). Todos los instantes se devuelven en UTC.
 
 ### CORS
 
-`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET` y
-`POST`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
+`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST` y
+`PATCH`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
 `http://localhost:5173,http://localhost:3000`:
 
 ```sh
 CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
 ```
+
+## Lotes
+
+Un lote es una cerveza en un tanque, con sus rangos objetivo. Ciclo de vida: `planned` → `active`
+(`start`) → `finished` (`finish`). Reglas:
+
+- Un solo lote `active` por tanque: lo garantizan el caso de uso y un índice único parcial en la base
+  (`uq_batches_one_active_per_tank`, migración `0004`). Iniciar un segundo responde `409`.
+- Se edita en `planned` y `active`; uno `finished` ya no (`409`). Cualquier otra transición es `409`.
+- El tanque debe existir (`404` si no). Los instantes se guardan con zona horaria y se devuelven en UTC;
+  `started_at` y `finished_at` los fija el servidor (son la base de los reportes).
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /batch-templates` | Plantillas con rangos precargados: `ale` y `lager` (`custom` no tiene) |
+| `POST /batches` | `201` con el lote en `planned`; `404` tanque desconocido; `422` datos inválidos |
+| `GET /batches?tank_id=&status=` | Lotes, los más nuevos primero; filtros opcionales |
+| `GET /batches/{id}` | Un lote; `404` si no existe |
+| `PATCH /batches/{id}` | Edita solo los campos enviados; `422` inválido, `409` si ya terminó |
+| `POST /batches/{id}/start` | `planned` → `active`; `409` si hay otro activo en el tanque o no está planificado |
+| `POST /batches/{id}/finish` | `active` → `finished`; `409` si no está activo |
+
+Plantillas: `ale` = 18–21 °C, presión máx. 1.0 bar, ABV 5.0; `lager` = 8–12 °C, presión máx. 1.2 bar,
+ABV 5.2. Los campos de `targets` enviados al crear sobrescriben la plantilla (con `custom` son
+obligatorios `temperature_min`, `temperature_max` y `pressure_max`). Los límites deben ser coherentes
+(mín. < máx.) y estar dentro de los rangos físicos de cada medición; `expected_final_abv` es 0–20.
+
+```sh
+curl -X POST localhost:8000/batches -H 'Content-Type: application/json' -d '{
+  "tank_id": "tank-1", "beer_name": "Pale Ale", "style": "APA", "template": "ale",
+  "targets": {"temperature_max": 22.0}, "expected_end": "2026-02-01T00:00:00Z"
+}'
+curl -X POST localhost:8000/batches/<id>/start
+curl -X PATCH localhost:8000/batches/<id> -H 'Content-Type: application/json' -d '{"notes": "dry hop"}'
+curl -X POST localhost:8000/batches/<id>/finish
+```
+
+`GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
+`started_at`, `expected_end`), resuelto con una sola consulta para todos los tanques listados.
 
 ## Series agregadas
 

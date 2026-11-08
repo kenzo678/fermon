@@ -1,10 +1,13 @@
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
+from uuid import UUID
 
 from fermon.fermentation.domain import (
     AggregatedPoint,
     AggregationBucket,
+    Batch,
+    BatchStatus,
     MeasurementType,
     Reading,
     Tank,
@@ -64,4 +67,37 @@ class TankRepository(Protocol):
 
     async def list(self) -> list[Tank]:
         """All registered tanks, sorted by id."""
+        ...
+
+
+class BatchRepository(Protocol):
+    async def add(self, batch: Batch) -> None:
+        """Store a new batch. Raises ActiveBatchConflictError if it would be a second active one."""
+        ...
+
+    async def update(self, batch: Batch) -> None:
+        """Store a new revision of an existing batch (optimistic concurrency).
+
+        Succeeds only if the stored version is ``batch.version - 1``; otherwise (changed or
+        missing meanwhile) raises ConcurrentBatchUpdateError and writes nothing. Raises
+        ActiveBatchConflictError if the tank would end up with two active batches.
+        """
+        ...
+
+    async def get(self, batch_id: UUID) -> Batch | None:
+        """The batch with this id, if any."""
+        ...
+
+    async def list(
+        self, tank_id: str | None = None, status: BatchStatus | None = None
+    ) -> list[Batch]:
+        """Batches matching the optional filters, newest first (by creation time)."""
+        ...
+
+    async def get_active(self, tank_id: str) -> Batch | None:
+        """The tank's active batch, if any."""
+        ...
+
+    async def active_for(self, tank_ids: Sequence[str]) -> dict[str, Batch]:
+        """The active batch of each given tank (one query); tanks without one are absent."""
         ...

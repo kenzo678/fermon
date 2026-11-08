@@ -9,7 +9,11 @@ from fermon.fermentation.domain import (
     Reading,
     TankNotFoundError,
 )
-from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
+from tests.fermentation.fakes import (
+    InMemoryBatchRepository,
+    InMemoryReadingRepository,
+    InMemoryTankRepository,
+)
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -36,7 +40,7 @@ async def seeded() -> tuple[InMemoryReadingRepository, InMemoryTankRepository]:
 async def test_list_tanks_returns_tanks_sorted_by_id_with_latest_reading_per_measurement() -> None:
     readings, tanks = await seeded()
 
-    overview = await ListTanks(tanks, readings).execute()
+    overview = await ListTanks(tanks, readings, InMemoryBatchRepository()).execute()
 
     assert [o.tank.id for o in overview] == ["tank-1", "tank-2", "tank-3"]
     first, second, third = overview
@@ -49,7 +53,9 @@ async def test_list_tanks_returns_tanks_sorted_by_id_with_latest_reading_per_mea
 
 
 async def test_list_tanks_is_empty_without_tanks() -> None:
-    result = await ListTanks(InMemoryTankRepository(), InMemoryReadingRepository()).execute()
+    result = await ListTanks(
+        InMemoryTankRepository(), InMemoryReadingRepository(), InMemoryBatchRepository()
+    ).execute()
 
     assert result == []
 
@@ -57,7 +63,7 @@ async def test_list_tanks_is_empty_without_tanks() -> None:
 async def test_get_tank_returns_the_tank_with_its_latest_readings() -> None:
     readings, tanks = await seeded()
 
-    result = await GetTank(tanks, readings).execute(" tank-1 ")
+    result = await GetTank(tanks, readings, InMemoryBatchRepository()).execute(" tank-1 ")
 
     assert isinstance(result, TankOverview)
     assert result.tank.id == "tank-1"
@@ -68,7 +74,7 @@ async def test_get_unknown_tank_raises_not_found() -> None:
     readings, tanks = await seeded()
 
     with pytest.raises(TankNotFoundError) as exc:
-        await GetTank(tanks, readings).execute("nope")
+        await GetTank(tanks, readings, InMemoryBatchRepository()).execute("nope")
 
     assert exc.value.tank_id == "nope"
 
@@ -77,7 +83,7 @@ async def test_get_blank_tank_id_raises_invalid_identifier() -> None:
     readings, tanks = await seeded()
 
     with pytest.raises(InvalidIdentifierError):
-        await GetTank(tanks, readings).execute("  ")
+        await GetTank(tanks, readings, InMemoryBatchRepository()).execute("  ")
 
 
 async def test_fake_ensure_keeps_the_earliest_first_seen_at() -> None:

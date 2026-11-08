@@ -35,7 +35,11 @@ def test_alembic_ini_path_defaults_to_the_source_tree_and_is_configurable(
     assert str(Settings().alembic_ini_path) == "/opt/fermon/alembic.ini"
 
 
-def test_cors_origins_default_to_local_dashboard_dev_servers() -> None:
+def test_cors_origins_default_to_local_dashboard_dev_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Compose injects CORS_ORIGINS into the container; the default is what applies without it.
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
     assert Settings().cors_origins == ["http://localhost:5173", "http://localhost:3000"]
 
 

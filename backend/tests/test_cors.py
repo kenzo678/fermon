@@ -46,3 +46,10 @@ async def test_simple_request_from_an_allowed_origin_gets_the_cors_header(
     response = await client.get("/health", headers={"Origin": ALLOWED})
 
     assert response.headers["access-control-allow-origin"] == ALLOWED
+
+
+async def test_preflight_allows_patch_so_browsers_can_edit_batches(client: AsyncClient) -> None:
+    result = await preflight(client, ALLOWED, method="PATCH")
+
+    assert result["status"] == "200"
+    assert "PATCH" in result["access-control-allow-methods"]

@@ -96,7 +96,7 @@ async def test_tanks_migration_backfills_tanks_from_existing_readings(
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")
         async with engine.begin() as conn:
-            await conn.execute(text("TRUNCATE readings, tanks"))
+            await conn.execute(text("TRUNCATE readings, tanks, batches"))
         await engine.dispose()
 
 
@@ -131,6 +131,32 @@ async def test_aggregates_are_real_time_with_refresh_policies_and_are_dropped_on
             assert list(await conn.execute(views)) == []
             assert list(await conn.execute(policies)) == []
             assert await conn.scalar(text("SELECT to_regclass('public.readings')")) is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_batches_migration_creates_the_table_and_is_dropped_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    exists = text("SELECT to_regclass('public.batches')")
+    index = text(
+        "SELECT indexdef FROM pg_indexes "
+        "WHERE tablename = 'batches' AND indexname = 'uq_batches_one_active_per_tank'"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert await conn.scalar(exists) is not None
+            definition = await conn.scalar(index)
+        assert definition is not None
+        assert "UNIQUE" in definition and "tank_id" in definition and "active" in definition
+
+        await asyncio.to_thread(command.downgrade, config, "0003")
+        async with engine.connect() as conn:
+            assert await conn.scalar(exists) is None
+            assert await conn.scalar(text("SELECT to_regclass('public.tanks')")) is not None
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")
         await engine.dispose()

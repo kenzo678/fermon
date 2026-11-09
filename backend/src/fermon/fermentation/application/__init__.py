@@ -1,3 +1,9 @@
+from fermon.fermentation.application.alerts import (
+    CheckSilentSensors,
+    EvaluateReadingAlerts,
+    ResolveBatchAlerts,
+    ResolveOrphanAlerts,
+)
 from fermon.fermentation.application.batches import (
     Clock,
     CreateBatch,
@@ -19,6 +25,7 @@ from fermon.fermentation.application.list_aggregated_readings import ListAggrega
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
 from fermon.fermentation.application.ports import (
+    AlertRepository,
     BatchRepository,
     ReadingRepository,
     TankRepository,
@@ -26,6 +33,9 @@ from fermon.fermentation.application.ports import (
 from fermon.fermentation.application.tank_overview import TankOverview
 
 __all__ = [
+    "AlertRepository",
+    "CheckSilentSensors",
+    "EvaluateReadingAlerts",
     "BatchRepository",
     "Clock",
     "CreateBatch",
@@ -44,6 +54,8 @@ __all__ = [
     "ListReadings",
     "ListTanks",
     "ReadingRepository",
+    "ResolveBatchAlerts",
+    "ResolveOrphanAlerts",
     "TankOverview",
     "TankRepository",
 ]

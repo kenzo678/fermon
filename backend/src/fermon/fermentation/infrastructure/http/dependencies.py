@@ -19,12 +19,14 @@ from fermon.fermentation.application.ingest_reading import IngestReading
 from fermon.fermentation.application.list_aggregated_readings import ListAggregatedReadings
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
+from fermon.fermentation.domain import AlertRules
 from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyBatchRepository,
     SqlAlchemyReadingRepository,
     SqlAlchemyTankRepository,
 )
 from fermon.fermentation.infrastructure.realtime import ReadingFeed
+from fermon.fermentation.infrastructure.wiring import build_finish_batch, build_ingest_reading
 
 
 def get_session_factory(connection: HTTPConnection) -> async_sessionmaker[AsyncSession]:
@@ -40,10 +42,16 @@ def get_reading_feed(connection: HTTPConnection) -> ReadingFeed:
 SessionFactory = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
 
 
-def get_ingest_reading(session_factory: SessionFactory) -> IngestReading:
-    return IngestReading(
-        SqlAlchemyReadingRepository(session_factory), SqlAlchemyTankRepository(session_factory)
-    )
+def get_alert_rules(connection: HTTPConnection) -> AlertRules:
+    rules: AlertRules = connection.app.state.alert_rules
+    return rules
+
+
+AlertRulesDep = Annotated[AlertRules, Depends(get_alert_rules)]
+
+
+def get_ingest_reading(session_factory: SessionFactory, rules: AlertRulesDep) -> IngestReading:
+    return build_ingest_reading(session_factory, rules)
 
 
 def get_list_readings(session_factory: SessionFactory) -> ListReadings:
@@ -88,7 +96,7 @@ def get_start_batch(session_factory: SessionFactory, clock: ClockDep) -> StartBa
 
 
 def get_finish_batch(session_factory: SessionFactory, clock: ClockDep) -> FinishBatch:
-    return FinishBatch(SqlAlchemyBatchRepository(session_factory), clock)
+    return build_finish_batch(session_factory, clock)
 
 
 def get_get_batch(session_factory: SessionFactory) -> GetBatch:

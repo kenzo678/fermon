@@ -17,6 +17,7 @@ from fermon.fermentation.application import (
 )
 from fermon.fermentation.domain import (
     ActiveBatchConflictError,
+    Batch,
     BatchNotFoundError,
     BatchStatus,
     ConcurrentBatchUpdateError,
@@ -176,6 +177,32 @@ async def test_empty_update_is_a_no_op_that_keeps_the_version() -> None:
 
     assert unchanged == batch
     assert (await w.batches.get(batch.id)).version == batch.version
+
+
+async def test_updates_that_change_nothing_do_not_write_or_bump_the_version() -> None:
+    w = await world()
+    batch = await w.create.execute(command(notes="same"))
+    no_ops: list[dict[str, object]] = [
+        {"targets": {}},
+        {"targets": None},
+        {"notes": "same"},
+        {"notes": "same", "targets": {"temperature_max": batch.targets.temperature_max}},
+    ]
+
+    for changes in no_ops:
+        unchanged = await w.update.execute(batch.id, changes, expected_version=batch.version)  # type: ignore[arg-type]
+        assert unchanged == batch, changes
+
+    assert await w.batches.get(batch.id) == batch
+
+
+async def test_a_real_change_still_bumps_the_version() -> None:
+    w = await world()
+    batch = await w.create.execute(command(notes="same"))
+
+    updated = await w.update.execute(batch.id, {"notes": "other"})
+
+    assert (updated.notes, updated.version) == ("other", batch.version + 1)
 
 
 async def test_update_can_clear_an_optional_target() -> None:
@@ -350,3 +377,35 @@ async def test_tank_overviews_include_the_active_batch() -> None:
 
     assert [o.active_batch for o in overviews] == [(await w.batches.get(batch.id)), None]
     assert one.active_batch is not None and one.active_batch.id == batch.id
+
+
+async def test_finish_runs_the_after_finished_hook_with_the_finished_batch() -> None:
+    w = await world()
+    seen: list[Batch] = []
+
+    async def hook(batch: Batch) -> None:
+        seen.append(batch)
+
+    finish = FinishBatch(w.batches, w.clock, after_finished=hook)
+    batch = await w.create.execute(command())
+    await w.start.execute(batch.id)
+
+    finished = await finish.execute(batch.id)
+
+    assert seen == [finished]
+
+
+async def test_a_failing_after_finished_hook_never_fails_the_finish() -> None:
+    w = await world()
+
+    async def broken(batch: Batch) -> None:
+        raise RuntimeError("alerts are down")
+
+    finish = FinishBatch(w.batches, w.clock, after_finished=broken)
+    batch = await w.create.execute(command())
+    await w.start.execute(batch.id)
+
+    finished = await finish.execute(batch.id)
+
+    assert finished.status is BatchStatus.FINISHED
+    assert await w.batches.get(batch.id) == finished

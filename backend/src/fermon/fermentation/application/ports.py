@@ -6,6 +6,9 @@ from uuid import UUID
 from fermon.fermentation.domain import (
     AggregatedPoint,
     AggregationBucket,
+    Alert,
+    AlertKind,
+    AlertStatus,
     Batch,
     BatchStatus,
     MeasurementType,
@@ -38,6 +41,27 @@ class ReadingRepository(Protocol):
         """The most recent reading of each measurement, for each given tank.
 
         Tanks (or measurements) without readings are absent from the result.
+        """
+        ...
+
+    async def streak_start(
+        self,
+        tank_id: str,
+        measurement: MeasurementType,
+        low: float | None,
+        high: float | None,
+        in_range: bool,
+        since: datetime,
+        until: datetime,
+    ) -> datetime | None:
+        """When the tank's current run of in-range (or out-of-range) readings began.
+
+        Looks at the readings of the tank and measurement (all sensors together) with
+        ``recorded_at`` in [since, until]. A reading is in range when ``low <= value <= high``
+        (a ``None`` limit is unbounded). Returns the earliest ``recorded_at`` of the readings of
+        the requested class that come after the last reading of the opposite class, so it is the
+        start of the uninterrupted run that ends the window; ``None`` when the newest reading in
+        the window is of the other class or the window is empty.
         """
         ...
 
@@ -100,4 +124,40 @@ class BatchRepository(Protocol):
 
     async def active_for(self, tank_ids: Sequence[str]) -> dict[str, Batch]:
         """The active batch of each given tank (one query); tanks without one are absent."""
+        ...
+
+
+class AlertRepository(Protocol):
+    async def add(self, alert: Alert) -> bool:
+        """Store a new alert. False if the tank already has an unresolved alert of that kind
+        (and measurement), in which case nothing is written: opening is idempotent.
+        """
+        ...
+
+    async def update(self, alert: Alert) -> None:
+        """Store a new revision of an existing alert (optimistic concurrency).
+
+        Succeeds only if the stored version is ``alert.version - 1``; otherwise (changed or
+        missing meanwhile) raises ConcurrentAlertUpdateError and writes nothing.
+        """
+        ...
+
+    async def get(self, alert_id: UUID) -> Alert | None:
+        """The alert with this id, if any."""
+        ...
+
+    async def list(
+        self,
+        tank_id: str | None = None,
+        status: AlertStatus | None = None,
+        kind: AlertKind | None = None,
+        batch_id: UUID | None = None,
+    ) -> list[Alert]:
+        """Alerts matching the optional filters, newest first (by opening time)."""
+        ...
+
+    async def get_unresolved(
+        self, tank_id: str, kind: AlertKind, measurement: MeasurementType | None
+    ) -> Alert | None:
+        """The open or acknowledged alert of this tank, kind and measurement, if any."""
         ...

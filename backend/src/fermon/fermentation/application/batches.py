@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Callable, Mapping
+import logging
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -19,6 +20,11 @@ from fermon.fermentation.domain import (
     normalize_id,
     template_targets,
 )
+
+logger = logging.getLogger(__name__)
+
+AfterFinished = Callable[[Batch], Awaitable[None]]
+"""Called with each batch right after it was finished."""
 
 Clock = Callable[[], datetime]
 """Returns the current timezone-aware time; injected so time-dependent rules are testable."""
@@ -113,12 +119,13 @@ class UpdateBatch:
         if expected_version is not None and expected_version != batch.version:
             raise ConcurrentBatchUpdateError(str(batch_id))
         fields = dict(changes)
-        if not fields:
-            # Nothing to edit: don't write, so other clients' versions stay valid.
-            return batch
         if "targets" in fields:
             fields["targets"] = merge_targets(batch.targets, fields["targets"])
         updated = batch.edit(**fields)
+        if dataclasses.replace(updated, version=batch.version) == batch:
+            # Nothing actually changed (empty patch, null/empty targets, identical values): don't
+            # write, so other clients' versions stay valid.
+            return batch
         await self._batches.update(updated)
         return updated
 
@@ -140,14 +147,38 @@ class StartBatch:
 
 
 class FinishBatch:
-    def __init__(self, batches: BatchRepository, clock: Clock) -> None:
+    def __init__(
+        self,
+        batches: BatchRepository,
+        clock: Clock,
+        after_finished: AfterFinished | None = None,
+    ) -> None:
         self._batches = batches
         self._clock = clock
+        self._after_finished = after_finished
 
     async def execute(self, batch_id: UUID) -> Batch:
         finished = (await _load(self._batches, batch_id)).finish(self._clock())
         await self._batches.update(finished)
+        await self._run_hook(finished)
         return finished
+
+    async def _run_hook(self, batch: Batch) -> None:
+        """Best-effort side effect (e.g. resolving the batch's alerts) of a finished batch.
+
+        The batch is already committed, so a hook failure must not fail the finish; a periodic
+        sweep repairs whatever the hook missed.
+        """
+        if self._after_finished is None:
+            return
+        try:
+            await self._after_finished(batch)
+        except Exception:
+            logger.error(
+                "after-finish hook failed for batch=%s; the batch was finished",
+                batch.id,
+                exc_info=True,
+            )
 
 
 class GetBatch:

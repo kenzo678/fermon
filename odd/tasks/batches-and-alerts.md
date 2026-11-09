@@ -43,7 +43,9 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 - [x] T1 — Backend de lotes: dominio `Batch` (estados, rangos, plantillas por estilo), migración,
   repositorio, casos de uso (crear, editar, iniciar, finalizar, listar, lote activo por tanque), API
   REST; `GET /tanks` incluye el lote activo.
-- [ ] T2 — Motor de alertas: reglas fuera de rango sostenido (5 min) y sensor silencioso (10 min),
+- [x] T2a — Núcleo del motor de alertas (reglas, ciclo de vida, persistencia, evaluación).
+- [ ] T2b — API de alertas y aviso en tiempo real.
+- [ ] T2 (original) — Motor de alertas: reglas fuera de rango sostenido (5 min) y sensor silencioso (10 min),
   ciclo de vida abierta/reconocida/resuelta, persistencia, API (`GET /alerts`, reconocer), aviso en
   tiempo real por WebSocket. PR del backend.
 - [ ] T3 — UI de lotes: formulario (con plantillas), estados, lote activo en la tarjeta y en el
@@ -90,5 +92,55 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   un PATCH sin cambios no escribe ni incrementa la versión. RED `version=2 == version=1`; GREEN 386
   passed; ruff/format/mypy OK.
 
+- T2 partida en T2a (núcleo) y T2b (API + tiempo real) por tamaño de revisión.
+- T2a completada (ruta delegada, dos escritores). Dominio `Alert` (kinds `out_of_range` /
+  `silent_sensor`, estados open/acknowledged/resolved, versión optimista) y reglas puras en
+  `alert_rules.py`: valor igual al límite = en rango; umbrales `>=`; todo medido sobre `recorded_at`;
+  `pressure_min` opcional; el alcohol nunca alerta; lecturas previas al inicio del lote se ignoran.
+  Histéresis: abrir tras 5 min fuera de rango, resolver tras 2 min dentro (configurables por
+  `ALERT_*`). `ReadingRepository.streak_start` (una consulta SQL sobre el índice existente, con
+  ventana acotada) da el inicio de la racha actual. `IngestReading` con hook `after_created` (sus
+  fallas se loguean y nunca tumban la ingesta) compuesto en `infrastructure/wiring.py` para HTTP e
+  ingestor. Chequeo periódico en el ingestor (`shared/periodic.py`): barrido de alertas huérfanas +
+  sensores silenciosos. Migración `0005` (`alerts`, JSONB `details`, índice único parcial
+  `uq_alerts_one_unresolved`). Al finalizar un lote se resuelven sus alertas con
+  `details.resolution = "batch_finished"` (hook `after_finished` + barrido de respaldo).
+  Arreglo de T1 incluido: un PATCH que deja el lote igual no escribe ni sube la versión (efecto: un
+  PATCH vacío sobre un lote finalizado ahora devuelve 409, coherente con "finalizado no se edita").
+  Evidencia TDD: RED de import en cada capa (`AlertAction`, `CheckSilentSensors`, hook
+  `after_created`, `SqlAlchemyAlertRepository`, `run_periodically`, `ResolveBatchAlerts`), `version:
+  2 != 1`, `[('open', None)] == [('resolved', 'batch_finished')]`; algunos tests escritos junto a la
+  implementación (declarado). GREEN 495 passed; unitarios 423; ruff/format/mypy OK. Smoke dev con
+  umbrales cortos: `out_of_range` abierta (observado 19.07 contra 30–35 °C), `silent_sensor` abierta
+  al detener el simulador y resuelta al reanudarlo.
+
+- Revisión RDD de T2a (`f98c763`, 2687 líneas): aprobada por el usuario, **aprobada** y
+  reconocida. Dos WARNING sobre lecturas fuera de orden (backlog del broker) corregidos dentro de
+  T2a antes del push (ruta delegada):
+  - R3-001: una alerta de sensor silencioso solo se resuelve con una lectura más nueva que
+    `details.last_reading_at`; si esa lectura es anterior a `opened_at` (backlog) se resuelve con
+    `resolved_at = opened_at` y `details.resolution = "late_data"`. Invariante de dominio:
+    `acknowledged_at`/`resolved_at` >= `opened_at`.
+  - R3-002: la evaluación fuera de rango se ancla en la lectura más nueva guardada del tanque y
+    medición (vía `latest_per_measurement`), no en la entrante; una lectura tardía nunca resuelve
+    ni abre alertas hacia atrás.
+  RED: 7 failed (dominio, resolución tardía, apertura/resolución con lecturas tardías); 2 tests de
+  caracterización declarados. GREEN 504 passed (verificado por el orquestador); unitarios 432;
+  ruff/format/mypy OK.
+
+- Revisión RDD del T2a final (`8db46be`, 2859 líneas): aprobada por el usuario, **aprobada** y
+  reconocida. Corregido dentro de T2a (ruta delegada), última ronda acordada:
+  - WARNING `R3-horizon-sparse-series`: se elimina la ventana acotada; `streak_start` se busca desde
+    el inicio del lote, así las series espaciadas (p. ej. una lectura cada 15 min) abren y resuelven
+    alertas correctamente. Costo documentado: escaneo proporcional a la racha actual.
+  - SUGGESTION `R3-fake-streak-tie-divergence`: el fake reproduce la semántica SQL en empates entre
+    clases; un test corre el mismo caso contra fake y SQL.
+  RED: 4 failed (`expected 1, got 0` en fake y SQL; `datetime(12:01) == None` en el empate); 2 de
+  caracterización declarados. GREEN 510 passed (verificado por el orquestador); ruff/format/mypy OK.
+
+## Trabajo futuro
+- Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de
+  refresh de los continuous aggregates (`tuple concurrently deleted`); visto una vez, no se reprodujo.
+
 ## Próximo paso
-T2 — motor de alertas.
+T2b — API de alertas y aviso en tiempo real.

@@ -3,7 +3,20 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Executable, Row, Text, column, func, select, true, values
+from sqlalchemy import (
+    ColumnElement,
+    Executable,
+    Row,
+    Text,
+    and_,
+    column,
+    func,
+    not_,
+    or_,
+    select,
+    true,
+    values,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -143,6 +156,44 @@ class SqlAlchemyReadingRepository:
             reading = _to_domain(row)
             latest.setdefault(reading.tank_id, {})[reading.measurement] = reading
         return latest
+
+    async def streak_start(
+        self,
+        tank_id: str,
+        measurement: MeasurementType,
+        low: float | None,
+        high: float | None,
+        in_range: bool,
+        since: datetime,
+        until: datetime,
+    ) -> datetime | None:
+        limits: list[ColumnElement[bool]] = []
+        if low is not None:
+            limits.append(readings.c.value >= low)
+        if high is not None:
+            limits.append(readings.c.value <= high)
+        inside = and_(*limits) if limits else true()
+        wanted = inside if in_range else not_(inside)
+        window = and_(
+            readings.c.tank_id == normalize_id("tank_id", tank_id),
+            readings.c.measurement == measurement.value,
+            readings.c.recorded_at >= since,
+            readings.c.recorded_at <= until,
+        )
+        # Cost: the max() is planned as a backward walk of ix_readings_tank_id_recorded_at
+        # (tank_id, recorded_at DESC) from ``until`` that stops at the first row of the other class,
+        # and the min() reads only the rows after it. Both scans are as long as the current streak,
+        # bounded by ``since`` (the batch start), not by any time horizon, so the result is exact
+        # whatever the reporting cadence. A very long uninterrupted streak is the worst case.
+        last_other = (
+            select(func.max(readings.c.recorded_at)).where(window, not_(wanted)).scalar_subquery()
+        )
+        statement = select(func.min(readings.c.recorded_at)).where(
+            window, wanted, or_(last_other.is_(None), readings.c.recorded_at > last_other)
+        )
+        async with self._session_factory() as session:
+            start: datetime | None = await session.scalar(statement)
+        return start
 
     async def aggregated(
         self,

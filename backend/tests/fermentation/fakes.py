@@ -6,8 +6,12 @@ from fermon.fermentation.domain import (
     ActiveBatchConflictError,
     AggregatedPoint,
     AggregationBucket,
+    Alert,
+    AlertKind,
+    AlertStatus,
     Batch,
     BatchStatus,
+    ConcurrentAlertUpdateError,
     ConcurrentBatchUpdateError,
     MeasurementType,
     Reading,
@@ -50,6 +54,37 @@ class InMemoryReadingRepository:
             if r.tank_id in tank_ids:
                 latest.setdefault(r.tank_id, {})[r.measurement] = r
         return latest
+
+    async def streak_start(
+        self,
+        tank_id: str,
+        measurement: MeasurementType,
+        low: float | None,
+        high: float | None,
+        in_range: bool,
+        since: datetime,
+        until: datetime,
+    ) -> datetime | None:
+        def inside(value: float) -> bool:
+            return (low is None or value >= low) and (high is None or value <= high)
+
+        window = [
+            r
+            for r in self.readings
+            if r.tank_id == tank_id
+            and r.measurement is measurement
+            and since <= r.recorded_at <= until
+        ]
+        # Same semantics as the SQL adapter: readings sharing an instant with one of the other
+        # class do not belong to the streak, whatever the insertion order.
+        other = [r.recorded_at for r in window if inside(r.value) is not in_range]
+        last_other = max(other, default=None)
+        wanted = [
+            r.recorded_at
+            for r in window
+            if inside(r.value) is in_range and (last_other is None or r.recorded_at > last_other)
+        ]
+        return min(wanted, default=None)
 
     async def aggregated(
         self,
@@ -137,3 +172,61 @@ class InMemoryBatchRepository:
     async def active_for(self, tank_ids: Sequence[str]) -> dict[str, Batch]:
         active = await self.list(status=BatchStatus.ACTIVE)
         return {b.tank_id: b for b in active if b.tank_id in tank_ids}
+
+
+class InMemoryAlertRepository:
+    """Mirrors the SQL adapter, including one unresolved alert per (tank, kind, measurement)."""
+
+    def __init__(self) -> None:
+        self.alerts: dict[UUID, Alert] = {}
+
+    def _key(self, alert: Alert) -> tuple[str, AlertKind, MeasurementType | None]:
+        return (alert.tank_id, alert.kind, alert.measurement)
+
+    async def add(self, alert: Alert) -> bool:
+        if alert.is_unresolved and any(
+            other.is_unresolved and self._key(other) == self._key(alert)
+            for other in self.alerts.values()
+        ):
+            return False
+        self.alerts[alert.id] = alert
+        return True
+
+    async def update(self, alert: Alert) -> None:
+        current = self.alerts.get(alert.id)
+        if current is None or current.version != alert.version - 1:
+            raise ConcurrentAlertUpdateError(str(alert.id))
+        self.alerts[alert.id] = alert
+
+    async def get(self, alert_id: UUID) -> Alert | None:
+        return self.alerts.get(alert_id)
+
+    async def list(
+        self,
+        tank_id: str | None = None,
+        status: AlertStatus | None = None,
+        kind: AlertKind | None = None,
+        batch_id: UUID | None = None,
+    ) -> list[Alert]:
+        matching = [
+            a
+            for a in self.alerts.values()
+            if (tank_id is None or a.tank_id == tank_id)
+            and (status is None or a.status is status)
+            and (kind is None or a.kind is kind)
+            and (batch_id is None or a.batch_id == batch_id)
+        ]
+        return sorted(matching, key=lambda a: (a.opened_at, str(a.id)), reverse=True)
+
+    async def get_unresolved(
+        self, tank_id: str, kind: AlertKind, measurement: MeasurementType | None
+    ) -> Alert | None:
+        return next(
+            (
+                a
+                for a in self.alerts.values()
+                if a.is_unresolved
+                and (a.tank_id, a.kind, a.measurement) == (tank_id, kind, measurement)
+            ),
+            None,
+        )

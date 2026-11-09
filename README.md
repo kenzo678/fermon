@@ -224,6 +224,50 @@ curl -X POST localhost:8000/batches/<id>/finish
 `GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
 `started_at`, `expected_end`), resuelto con una sola consulta para todos los tanques listados.
 
+## Alertas
+
+El backend evalúa alertas solo para tanques con un lote `active`, y solo con lecturas registradas desde
+que el lote empezó (`started_at`). Todo el tiempo se mide sobre `recorded_at`, no sobre la hora de llegada.
+
+| Tipo | Se abre cuando | Se resuelve cuando |
+| --- | --- | --- |
+| `out_of_range` (temperatura o presión) | el valor está fuera del rango del lote durante 5 min seguidos | vuelve al rango y se mantiene 2 min seguidos |
+| `silent_sensor` | el tanque no reporta ninguna lectura por 10 min (contados desde el inicio del lote si nunca reportó) | llega una lectura del tanque más nueva que la última que vio la alerta (`details.last_reading_at`) |
+
+- Los límites del rango cuentan como dentro del rango (solo se viola al superarlos); los umbrales de
+  tiempo se cumplen al alcanzarlos (`>=`). La presión usa `pressure_max` y, si existe, `pressure_min`.
+- El alcohol no genera alertas. Los sensores de un mismo tanque se evalúan en conjunto por medición.
+- La evaluación se ancla a la lectura almacenada más nueva de cada tanque y medición, no a la que
+  acaba de llegar: una lectura tardía o de un backlog nunca mueve las alertas hacia atrás (no resuelve
+  una alerta que las lecturas más nuevas siguen violando ni abre una con fecha en un periodo que ya
+  se sabe dentro del rango).
+- Una alerta `silent_sensor` solo se resuelve con una lectura estrictamente posterior a su
+  `details.last_reading_at`. Si esa lectura se registró antes de abrirse la alerta (backlog tras una
+  caída), se resuelve igual con `details.resolution = "late_data"`; `resolved_at` nunca es anterior a
+  `opened_at` (invariante del dominio). La recuperación normal no agrega `resolution`.
+- La duración fuera (o dentro) del rango se mide hacia atrás hasta la última lectura de la clase
+  opuesta, sin límite de ventana salvo el inicio del lote: funciona igual con sensores que reportan
+  con menos frecuencia que los umbrales (por ejemplo, una lectura cada 15 min).
+- La histéresis de 2 min evita que un valor que oscila sobre el límite abra y cierre alertas.
+- Ciclo de vida: `open` → `acknowledged` (`acknowledge`) → `resolved`; también `open` → `resolved`.
+  Una alerta reconocida igual se resuelve sola. Otras transiciones son inválidas.
+- Hay a lo sumo una alerta sin resolver por tanque, tipo y medición (índice único parcial
+  `uq_alerts_one_unresolved`, migración `0005`); al resolverse, un nuevo episodio abre otra alerta.
+- La evaluación por lectura corre en el ingestor y también en `POST /readings`, después de guardar la
+  lectura; un fallo de la evaluación se registra y nunca pierde la lectura. El ingestor además revisa
+  sensores silenciosos de forma periódica. El estado sale de la base, no de memoria, así que una
+  evaluación perdida se recupera con la siguiente lectura o la siguiente revisión.
+
+| Variable | Valor por defecto | Significado |
+| --- | --- | --- |
+| `ALERT_OUT_OF_RANGE_SECONDS` | `300` | Tiempo fuera de rango para abrir la alerta |
+| `ALERT_RESOLVE_SECONDS` | `120` | Tiempo de vuelta al rango para resolverla |
+| `ALERT_SILENT_SECONDS` | `600` | Silencio del sensor para abrir `silent_sensor` |
+| `ALERT_SILENT_CHECK_INTERVAL_SECONDS` | `60` | Cada cuánto el ingestor revisa sensores silenciosos |
+
+Todas deben ser mayores que 0. Con valores chicos (por ejemplo `20`, `10`, `30`, `5`) se ven alertas en
+segundos. Los endpoints de listado y reconocimiento llegan en la siguiente tarea.
+
 ## Series agregadas
 
 Para graficar no se piden lecturas crudas (una fermentación de 10 días a 1 lectura/s son cientos de

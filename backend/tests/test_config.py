@@ -57,3 +57,42 @@ def test_cors_origins_env_var_accepts_comma_separated_or_json(
 ) -> None:
     monkeypatch.setenv("CORS_ORIGINS", raw)
     assert Settings().cors_origins == expected
+
+
+def test_alert_thresholds_default_to_five_two_and_ten_minutes() -> None:
+    settings = Settings()
+    assert settings.alert_out_of_range_seconds == 300
+    assert settings.alert_resolve_seconds == 120
+    assert settings.alert_silent_seconds == 600
+    assert settings.alert_silent_check_interval_seconds == 60
+
+
+def test_alert_thresholds_are_configurable_through_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ALERT_OUT_OF_RANGE_SECONDS", "20")
+    monkeypatch.setenv("ALERT_RESOLVE_SECONDS", "10")
+    monkeypatch.setenv("ALERT_SILENT_SECONDS", "30")
+    monkeypatch.setenv("ALERT_SILENT_CHECK_INTERVAL_SECONDS", "5")
+    settings = Settings()
+    assert (
+        settings.alert_out_of_range_seconds,
+        settings.alert_resolve_seconds,
+        settings.alert_silent_seconds,
+        settings.alert_silent_check_interval_seconds,
+    ) == (20, 10, 30, 5)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "alert_out_of_range_seconds",
+        "alert_resolve_seconds",
+        "alert_silent_seconds",
+        "alert_silent_check_interval_seconds",
+    ],
+)
+@pytest.mark.parametrize("value", [0, -1])
+def test_alert_thresholds_must_be_positive(name: str, value: int) -> None:
+    with pytest.raises(ValidationError, match=name):
+        Settings(**{name: value})

@@ -124,3 +124,99 @@ async def test_main_returns_zero_on_clean_shutdown() -> None:
         return None
 
     assert await main(Settings(), runner=ok_run) == 0
+
+
+class TickingWait:
+    """Fake wait for the periodic loop: records intervals, stops after ``ticks`` waits."""
+
+    def __init__(self, ticks: int) -> None:
+        self.ticks = ticks
+        self.intervals: list[float] = []
+
+    async def __call__(self, stop: asyncio.Event, seconds: float) -> None:
+        self.intervals.append(seconds)
+        if len(self.intervals) >= self.ticks:
+            stop.set()
+
+
+async def test_silent_sensor_check_runs_every_configured_interval_alongside_the_consumer() -> None:
+    harness = Harness([SchemaState.READY])
+    harness.settings = Settings(alert_silent_check_interval_seconds=7)
+    wait = TickingWait(ticks=3)
+    runs: list[str] = []
+
+    async def fake_check() -> None:
+        runs.append("check")
+        if len(runs) == 1:
+            raise RuntimeError("database down")  # must be survived
+
+    async def consumer(settings: Settings, ingest: IngestReading, stop: asyncio.Event) -> None:
+        await stop.wait()  # like the real consumer: lives until stopped
+
+    await run(
+        harness.settings,
+        asyncio.Event(),
+        engine_factory=harness.engine_factory,
+        schema_check=harness.schema_check,
+        wait_for=harness.wait_for_schema,
+        consumer=consumer,
+        silent_check_factory=lambda sessions, settings: fake_check,
+        periodic_wait=wait,
+    )
+
+    assert runs == ["check", "check"]
+    assert wait.intervals == [7, 7, 7]
+    assert harness.engine.disposed is True
+
+
+async def test_silent_check_does_not_start_when_the_schema_never_becomes_ready() -> None:
+    harness = Harness([SchemaState.BEHIND] * 3)
+    stop = asyncio.Event()
+    original = harness.schema_check
+
+    async def check_then_stop(engine: Any, config: Any) -> SchemaState:
+        stop.set()
+        return await original(engine, config)
+
+    runs = 0
+
+    async def fake_check() -> None:
+        nonlocal runs
+        runs += 1
+
+    await run(
+        harness.settings,
+        stop,
+        engine_factory=harness.engine_factory,
+        schema_check=check_then_stop,
+        wait_for=harness.wait_for_schema,
+        consumer=harness.consumer,
+        silent_check_factory=lambda sessions, settings: fake_check,
+    )
+
+    assert runs == 0
+
+
+async def test_the_ingest_use_case_is_wired_to_evaluate_alerts_after_a_stored_reading() -> None:
+    harness = Harness([SchemaState.READY])
+    received: list[IngestReading] = []
+
+    async def consumer(settings: Settings, ingest: IngestReading, stop: asyncio.Event) -> None:
+        received.append(ingest)
+
+    await run(
+        harness.settings,
+        asyncio.Event(),
+        engine_factory=harness.engine_factory,
+        schema_check=harness.schema_check,
+        wait_for=harness.wait_for_schema,
+        consumer=consumer,
+        silent_check_factory=lambda sessions, settings: _noop,
+    )
+
+    [ingest] = received
+    assert ingest._after_created is not None  # type: ignore[attr-defined]
+
+
+async def _noop() -> None:
+    return None

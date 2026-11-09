@@ -234,6 +234,16 @@ async def test_patch_updates_only_the_sent_fields_and_merges_targets(client: Asy
     }
 
 
+async def test_patch_that_changes_nothing_keeps_the_version(client: AsyncClient) -> None:
+    created = await create(client)
+    url = f"/batches/{created['id']}"
+
+    for payload in ({"targets": None}, {"targets": {}}, {"notes": created["notes"]}):
+        response = await client.patch(url, json=payload)
+        assert response.status_code == 200, payload
+        assert response.json() == created, payload
+
+
 async def test_patch_with_a_stale_version_is_409_on_the_version_field(
     client: AsyncClient,
 ) -> None:

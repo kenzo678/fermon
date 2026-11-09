@@ -112,3 +112,44 @@ async def test_tank_is_registered_before_the_reading_is_stored() -> None:
     await IngestReading(Spy(), SpyTanks()).execute(make_command())
 
     assert order == ["tank", "reading"]
+
+
+async def test_hook_runs_after_a_reading_is_created_but_not_for_duplicates() -> None:
+    seen: list[Reading] = []
+
+    async def hook(reading: Reading) -> None:
+        seen.append(reading)
+
+    use_case = IngestReading(
+        InMemoryReadingRepository(), InMemoryTankRepository(), after_created=hook
+    )
+    first = await use_case.execute(make_command())
+    await use_case.execute(make_command())
+
+    assert seen == [first.reading]
+
+
+async def test_a_failing_hook_never_fails_the_ingest(caplog: pytest.LogCaptureFixture) -> None:
+    async def broken(reading: Reading) -> None:
+        raise RuntimeError("alerts are down")
+
+    repo = InMemoryReadingRepository()
+    with caplog.at_level("ERROR"):
+        result = await IngestReading(repo, InMemoryTankRepository(), after_created=broken).execute(
+            make_command()
+        )
+
+    assert result.created is True and len(repo.readings) == 1
+    assert "after-ingest hook failed" in caplog.text
+
+
+async def test_the_hook_sees_the_reading_already_stored() -> None:
+    repo = InMemoryReadingRepository()
+    stored_counts: list[int] = []
+
+    async def hook(reading: Reading) -> None:
+        stored_counts.append(len(repo.readings))
+
+    await IngestReading(repo, InMemoryTankRepository(), after_created=hook).execute(make_command())
+
+    assert stored_counts == [1]

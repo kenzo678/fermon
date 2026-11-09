@@ -1,10 +1,16 @@
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
+from uuid import UUID
 
 from fermon.fermentation.domain import (
     AggregatedPoint,
     AggregationBucket,
+    Alert,
+    AlertKind,
+    AlertStatus,
+    Batch,
+    BatchStatus,
     MeasurementType,
     Reading,
     Tank,
@@ -38,6 +44,27 @@ class ReadingRepository(Protocol):
         """
         ...
 
+    async def streak_start(
+        self,
+        tank_id: str,
+        measurement: MeasurementType,
+        low: float | None,
+        high: float | None,
+        in_range: bool,
+        since: datetime,
+        until: datetime,
+    ) -> datetime | None:
+        """When the tank's current run of in-range (or out-of-range) readings began.
+
+        Looks at the readings of the tank and measurement (all sensors together) with
+        ``recorded_at`` in [since, until]. A reading is in range when ``low <= value <= high``
+        (a ``None`` limit is unbounded). Returns the earliest ``recorded_at`` of the readings of
+        the requested class that come after the last reading of the opposite class, so it is the
+        start of the uninterrupted run that ends the window; ``None`` when the newest reading in
+        the window is of the other class or the window is empty.
+        """
+        ...
+
     async def aggregated(
         self,
         tank_id: str,
@@ -64,4 +91,80 @@ class TankRepository(Protocol):
 
     async def list(self) -> list[Tank]:
         """All registered tanks, sorted by id."""
+        ...
+
+
+class BatchRepository(Protocol):
+    async def add(self, batch: Batch) -> None:
+        """Store a new batch. Raises ActiveBatchConflictError if it would be a second active one."""
+        ...
+
+    async def update(self, batch: Batch) -> None:
+        """Store a new revision of an existing batch (optimistic concurrency).
+
+        Succeeds only if the stored version is ``batch.version - 1``; otherwise (changed or
+        missing meanwhile) raises ConcurrentBatchUpdateError and writes nothing. Raises
+        ActiveBatchConflictError if the tank would end up with two active batches.
+        """
+        ...
+
+    async def get(self, batch_id: UUID) -> Batch | None:
+        """The batch with this id, if any."""
+        ...
+
+    async def list(
+        self, tank_id: str | None = None, status: BatchStatus | None = None
+    ) -> list[Batch]:
+        """Batches matching the optional filters, newest first (by creation time)."""
+        ...
+
+    async def get_active(self, tank_id: str) -> Batch | None:
+        """The tank's active batch, if any."""
+        ...
+
+    async def active_for(self, tank_ids: Sequence[str]) -> dict[str, Batch]:
+        """The active batch of each given tank (one query); tanks without one are absent."""
+        ...
+
+
+class AlertRepository(Protocol):
+    async def add(self, alert: Alert) -> bool:
+        """Store a new alert. False if the tank already has an unresolved alert of that kind
+        (and measurement), in which case nothing is written: opening is idempotent.
+        """
+        ...
+
+    async def update(self, alert: Alert) -> None:
+        """Store a new revision of an existing alert (optimistic concurrency).
+
+        Succeeds only if the stored version is ``alert.version - 1``; otherwise (changed or
+        missing meanwhile) raises ConcurrentAlertUpdateError and writes nothing.
+        """
+        ...
+
+    async def get(self, alert_id: UUID) -> Alert | None:
+        """The alert with this id, if any."""
+        ...
+
+    async def list(
+        self,
+        tank_id: str | None = None,
+        statuses: Sequence[AlertStatus] | None = None,
+        kind: AlertKind | None = None,
+        batch_id: UUID | None = None,
+        limit: int | None = None,
+    ) -> list[Alert]:
+        """Alerts matching the optional filters (any of ``statuses``), newest first by opening
+        time, at most ``limit`` of them (all without one).
+        """
+        ...
+
+    async def count_unresolved(self, tank_ids: Sequence[str]) -> dict[str, int]:
+        """Unresolved (open + acknowledged) alerts per given tank, in one query; none: absent."""
+        ...
+
+    async def get_unresolved(
+        self, tank_id: str, kind: AlertKind, measurement: MeasurementType | None
+    ) -> Alert | None:
+        """The open or acknowledged alert of this tank, kind and measurement, if any."""
         ...

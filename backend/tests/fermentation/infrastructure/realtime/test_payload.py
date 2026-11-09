@@ -1,12 +1,16 @@
 from datetime import UTC, datetime, timedelta, timezone
+from uuid import UUID
 
 import pytest
 
-from fermon.fermentation.domain import MeasurementType, Reading
+from fermon.fermentation.domain import Alert, AlertKind, AlertStatus, MeasurementType, Reading
 from fermon.fermentation.infrastructure.realtime.payload import (
+    ALERTS_CHANNEL,
     READINGS_CHANNEL,
     InvalidPayloadError,
+    decode_alert,
     decode_reading,
+    encode_alert,
     encode_reading,
 )
 
@@ -68,3 +72,58 @@ def test_decode_round_trips_to_an_equal_instant() -> None:
 def test_decode_rejects_malformed_payloads(payload: str) -> None:
     with pytest.raises(InvalidPayloadError):
         decode_reading(payload)
+
+
+ALERT = Alert(
+    id=UUID(int=7),
+    tank_id="tank-1",
+    batch_id=UUID(int=1),
+    kind=AlertKind.OUT_OF_RANGE,
+    measurement=MeasurementType.TEMPERATURE,
+    status=AlertStatus.ACKNOWLEDGED,
+    opened_at=datetime(2026, 1, 1, 9, 0, tzinfo=timezone(timedelta(hours=-3))),
+    acknowledged_at=datetime(2026, 1, 1, 12, 5, tzinfo=UTC),
+    details={"observed": 25.5, "bound": "above", "target_min": 18.0, "target_max": None},
+    version=2,
+)
+
+
+def test_alert_channel_name_is_stable() -> None:
+    assert ALERTS_CHANNEL == "fermon_alerts"
+
+
+def test_encoded_alert_is_the_api_shape_with_utc_timestamps() -> None:
+    import json
+
+    assert json.loads(encode_alert(ALERT)) == {
+        "id": str(UUID(int=7)),
+        "tank_id": "tank-1",
+        "batch_id": str(UUID(int=1)),
+        "kind": "out_of_range",
+        "measurement": "temperature",
+        "status": "acknowledged",
+        "opened_at": "2026-01-01T12:00:00Z",
+        "acknowledged_at": "2026-01-01T12:05:00Z",
+        "resolved_at": None,
+        "details": {"observed": 25.5, "bound": "above", "target_min": 18.0, "target_max": None},
+        "version": 2,
+    }
+
+
+def test_alert_round_trips_through_the_payload() -> None:
+    assert decode_alert(encode_alert(ALERT)) == ALERT
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not json",
+        "{}",
+        encode_alert(ALERT).replace('"kind":"out_of_range"', '"kind":"loud"'),
+        encode_alert(ALERT).replace('"version":2', '"version":0'),
+        encode_alert(ALERT)[:-1] + ',"extra":1}',
+    ],
+)
+def test_decoding_an_invalid_alert_payload_raises(payload: str) -> None:
+    with pytest.raises(InvalidPayloadError):
+        decode_alert(payload)

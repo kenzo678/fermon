@@ -9,6 +9,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from fermon.fermentation.infrastructure.persistence import (
+    SqlAlchemyAlertRepository,
+    SqlAlchemyBatchRepository,
     SqlAlchemyReadingRepository,
     SqlAlchemyTankRepository,
 )
@@ -51,7 +53,9 @@ async def engine(migrated_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(migrated_database_url)
     async with engine.begin() as conn:
         # TRUNCATE on the hypertable does not clear the continuous aggregates' materialized data.
-        await conn.execute(text("TRUNCATE readings, tanks, readings_1m, readings_1h"))
+        await conn.execute(
+            text("TRUNCATE readings, tanks, batches, alerts, readings_1m, readings_1h")
+        )
     yield engine
     await engine.dispose()
 
@@ -64,3 +68,13 @@ def repository(engine: AsyncEngine) -> SqlAlchemyReadingRepository:
 @pytest.fixture
 def tank_repository(engine: AsyncEngine) -> SqlAlchemyTankRepository:
     return SqlAlchemyTankRepository(async_sessionmaker(engine, expire_on_commit=False))
+
+
+@pytest.fixture
+def batch_repository(engine: AsyncEngine) -> SqlAlchemyBatchRepository:
+    return SqlAlchemyBatchRepository(async_sessionmaker(engine, expire_on_commit=False))
+
+
+@pytest.fixture
+def alert_repository(engine: AsyncEngine) -> SqlAlchemyAlertRepository:
+    return SqlAlchemyAlertRepository(async_sessionmaker(engine, expire_on_commit=False))

@@ -1,20 +1,26 @@
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
+from uuid import UUID
 
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from fermon.fermentation.application import GetTank, IngestReading, IngestReadingCommand, ListTanks
-from fermon.fermentation.domain import MeasurementType
+from fermon.fermentation.domain import Alert, AlertKind, AlertStatus, MeasurementType
 from fermon.fermentation.infrastructure.http.dependencies import (
     get_get_tank,
     get_ingest_reading,
     get_list_tanks,
 )
 from fermon.main import create_app
-from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
+from tests.fermentation.fakes import (
+    InMemoryAlertRepository,
+    InMemoryBatchRepository,
+    InMemoryReadingRepository,
+    InMemoryTankRepository,
+)
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -22,10 +28,11 @@ T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
     readings, tanks = InMemoryReadingRepository(), InMemoryTankRepository()
+    batches, alerts = InMemoryBatchRepository(), InMemoryAlertRepository()
     app: FastAPI = create_app()
     app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(readings, tanks)
-    app.dependency_overrides[get_list_tanks] = lambda: ListTanks(tanks, readings)
-    app.dependency_overrides[get_get_tank] = lambda: GetTank(tanks, readings)
+    app.dependency_overrides[get_list_tanks] = lambda: ListTanks(tanks, readings, batches, alerts)
+    app.dependency_overrides[get_get_tank] = lambda: GetTank(tanks, readings, batches, alerts)
     ingest = IngestReading(readings, tanks)
     for tank, measurement, value, at in [
         ("tank-2", MeasurementType.ALCOHOL, 4.0, T0),
@@ -36,6 +43,14 @@ async def client() -> AsyncIterator[AsyncClient]:
         await ingest.execute(
             IngestReadingCommand(tank, f"{tank}-s", measurement.value, value, measurement.unit, at)
         )
+    temp, pressure = MeasurementType.TEMPERATURE, MeasurementType.PRESSURE
+    opened = [
+        Alert(UUID(int=n), "tank-2", UUID(int=1), AlertKind.OUT_OF_RANGE, m, AlertStatus.OPEN, T0)
+        for n, m in ((1, temp), (2, pressure), (3, pressure))
+    ]
+    await alerts.add(opened[0])
+    await alerts.add(opened[1].acknowledge(T0))
+    await alerts.add(opened[2].resolve(T0))
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
 
@@ -55,6 +70,8 @@ TANK_1 = {
     "id": "tank-1",
     "display_name": None,
     "first_seen_at": "2026-01-01T12:00:00Z",
+    "active_batch": None,
+    "open_alerts": 0,
     "latest": {
         "temperature": reading_json(
             "tank-1", "temperature", 19.5, "celsius", "2026-01-01T12:05:00Z"
@@ -83,6 +100,14 @@ async def test_get_tank_returns_the_same_shape(client: AsyncClient) -> None:
 
     assert response.status_code == 200
     assert response.json() == TANK_1
+
+
+async def test_tanks_report_their_unresolved_alert_count(client: AsyncClient) -> None:
+    listed = {t["id"]: t["open_alerts"] for t in (await client.get("/tanks")).json()}
+    one = await client.get("/tanks/tank-2")
+
+    assert listed == {"tank-1": 0, "tank-2": 2}  # open + acknowledged count, resolved does not
+    assert one.json()["open_alerts"] == 2
 
 
 async def test_get_unknown_tank_returns_unified_404(client: AsyncClient) -> None:

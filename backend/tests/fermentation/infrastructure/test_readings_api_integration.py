@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -98,3 +99,96 @@ async def test_ingest_registers_the_tank_once_and_tanks_endpoints_show_latest_re
     assert missing.status_code == 404
     async with engine.connect() as conn:
         assert await conn.scalar(text("SELECT count(*) FROM tanks")) == 1
+
+
+async def test_batch_lifecycle_end_to_end_with_active_batch_in_the_overview(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await client.post("/readings", json=BODY)
+    await client.post("/readings", json={**BODY, "tank_id": "tank-2", "sensor_id": "p2"})
+    payload = {"tank_id": "tank-1", "beer_name": "Lager", "style": "Helles", "template": "lager"}
+
+    first = (await client.post("/batches", json=payload)).json()
+    second = (await client.post("/batches", json={**payload, "beer_name": "Other"})).json()
+    ghost = await client.post("/batches", json={**payload, "tank_id": "ghost"})
+    started = await client.post(f"/batches/{first['id']}/start")
+    conflict = await client.post(f"/batches/{second['id']}/start")
+    overview = (await client.get("/tanks")).json()
+    detail = (await client.get("/tanks/tank-1")).json()
+
+    assert first["targets"]["temperature_max"] == 12.0
+    assert ghost.status_code == 404
+    assert started.status_code == 200 and started.json()["status"] == "active"
+    assert conflict.status_code == 409
+    assert overview[0]["active_batch"]["id"] == first["id"]
+    assert overview[0]["active_batch"]["targets"]["pressure_max"] == 1.2
+    assert overview[1]["active_batch"] is None
+    assert detail == overview[0]
+
+    await client.post(f"/batches/{first['id']}/finish")
+    assert (await client.get("/tanks/tank-1")).json()["active_batch"] is None
+    assert (await client.post(f"/batches/{second['id']}/start")).status_code == 200
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM batches WHERE status='active'")) == 1
+
+
+async def test_post_readings_evaluates_alerts_for_the_active_batch(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await client.post("/readings", json=BODY)  # registers tank-1
+    batch = (
+        await client.post(
+            "/batches",
+            json={
+                "tank_id": "tank-1",
+                "beer_name": "Lager",
+                "style": "Helles",
+                "template": "lager",
+            },
+        )
+    ).json()
+    await client.post(f"/batches/{batch['id']}/start")
+    started = datetime.now(UTC)
+
+    for offset in (timedelta(seconds=1), timedelta(minutes=6)):  # lager max is 12 degrees
+        body = {**BODY, "value": 25.0, "recorded_at": (started + offset).isoformat()}
+        assert (await client.post("/readings", json=body)).status_code == 201
+
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(text("SELECT kind, measurement, status, batch_id FROM alerts"))
+        ).all()
+    assert [(r.kind, r.measurement, r.status, str(r.batch_id)) for r in rows] == [
+        ("out_of_range", "temperature", "open", batch["id"])
+    ]
+
+
+async def test_finishing_a_batch_resolves_its_unresolved_alerts(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await client.post("/readings", json=BODY)  # registers tank-1
+    batch = (
+        await client.post(
+            "/batches",
+            json={
+                "tank_id": "tank-1",
+                "beer_name": "Lager",
+                "style": "Helles",
+                "template": "lager",
+            },
+        )
+    ).json()
+    await client.post(f"/batches/{batch['id']}/start")
+    started = datetime.now(UTC)
+    for offset in (timedelta(seconds=1), timedelta(minutes=6)):
+        body = {**BODY, "value": 25.0, "recorded_at": (started + offset).isoformat()}
+        await client.post("/readings", json=body)
+    query = text("SELECT status, details->>'resolution' AS resolution FROM alerts")
+    async with engine.connect() as conn:
+        assert [r.status for r in (await conn.execute(query)).all()] == ["open"]
+
+    assert (await client.post(f"/batches/{batch['id']}/finish")).status_code == 200
+
+    async with engine.connect() as conn:
+        rows = (await conn.execute(query)).all()
+    assert [(r.status, r.resolution) for r in rows] == [("resolved", "batch_finished")]

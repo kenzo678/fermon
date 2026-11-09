@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fermon.fermentation.infrastructure.http.errors import register_error_handlers
 from fermon.fermentation.infrastructure.http.router import router as fermentation_router
 from fermon.fermentation.infrastructure.http.websocket import router as websocket_router
-from fermon.fermentation.infrastructure.realtime import ReadingBroadcaster, listen_dsn
+from fermon.fermentation.infrastructure.realtime import RealtimeBroadcaster, listen_dsn
+from fermon.fermentation.infrastructure.wiring import alert_rules
 from fermon.shared.config import Settings
 from fermon.shared.db import create_engine, create_session_factory
 
@@ -19,9 +20,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(resolved)
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)
+        app.state.alert_rules = alert_rules(resolved)
         # Starts without waiting for the database, so the API (and /health) comes up regardless.
-        broadcaster = ReadingBroadcaster(listen_dsn(resolved.database_url))
+        broadcaster = RealtimeBroadcaster(listen_dsn(resolved.database_url))
         app.state.reading_feed = broadcaster
+        app.state.alert_feed = broadcaster
         await broadcaster.start()
         try:
             yield
@@ -35,7 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Content-Type"],
         allow_credentials=False,
     )

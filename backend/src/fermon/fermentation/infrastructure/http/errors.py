@@ -3,7 +3,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from fermon.fermentation.domain import (
+    ActiveBatchConflictError,
+    AlertNotFoundError,
+    BatchNotFoundError,
+    ConcurrentAlertUpdateError,
+    ConcurrentBatchUpdateError,
     DomainError,
+    InvalidAlertError,
+    InvalidAlertTransitionError,
+    InvalidBatchError,
+    InvalidBatchTransitionError,
     InvalidIdentifierError,
     InvalidReadingError,
     InvalidTankError,
@@ -23,7 +32,14 @@ async def domain_error_handler(_: Request, exc: Exception) -> JSONResponse:
     """Map domain rule violations to 422 with `{"detail": [{"field", "message"}]}`."""
     field = (
         exc.field
-        if isinstance(exc, InvalidReadingError | InvalidIdentifierError | InvalidTankError)
+        if isinstance(
+            exc,
+            InvalidReadingError
+            | InvalidIdentifierError
+            | InvalidTankError
+            | InvalidBatchError
+            | InvalidAlertError,
+        )
         else None
     )
     return _unprocessable([{"field": field, "message": str(exc)}])
@@ -34,6 +50,37 @@ async def tank_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
         content={"detail": [{"field": "tank_id", "message": str(exc)}]},
+    )
+
+
+async def batch_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Map an unknown batch to 404 with the unified error shape."""
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": [{"field": "batch_id", "message": str(exc)}]},
+    )
+
+
+async def alert_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Map an unknown alert to 404 with the unified error shape."""
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": [{"field": "alert_id", "message": str(exc)}]},
+    )
+
+
+async def conflict_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Map batch state conflicts (second active batch, forbidden transition) to 409."""
+    field = (
+        "tank_id"
+        if isinstance(exc, ActiveBatchConflictError)
+        else "version"
+        if isinstance(exc, ConcurrentBatchUpdateError | ConcurrentAlertUpdateError)
+        else "status"
+    )
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": [{"field": field, "message": str(exc)}]},
     )
 
 
@@ -54,4 +101,11 @@ async def validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DomainError, domain_error_handler)
     app.add_exception_handler(TankNotFoundError, tank_not_found_handler)
+    app.add_exception_handler(BatchNotFoundError, batch_not_found_handler)
+    app.add_exception_handler(AlertNotFoundError, alert_not_found_handler)
+    app.add_exception_handler(ActiveBatchConflictError, conflict_handler)
+    app.add_exception_handler(InvalidAlertTransitionError, conflict_handler)
+    app.add_exception_handler(ConcurrentAlertUpdateError, conflict_handler)
+    app.add_exception_handler(InvalidBatchTransitionError, conflict_handler)
+    app.add_exception_handler(ConcurrentBatchUpdateError, conflict_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

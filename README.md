@@ -160,6 +160,8 @@ curl localhost:8000/tanks/tank-1
   "id": "tank-1",
   "display_name": null,
   "first_seen_at": "2026-01-01T10:00:00Z",
+  "active_batch": null,
+  "open_alerts": 0,
   "latest": {
     "temperature": {"tank_id": "tank-1", "sensor_id": "tank-1-temp", "measurement": "temperature",
                     "value": 19.5, "unit": "celsius", "recorded_at": "2026-01-01T12:05:00Z"},
@@ -169,19 +171,134 @@ curl localhost:8000/tanks/tank-1
 }
 ```
 
-`latest.<medición>` es `null` si el tanque aún no reportó esa medición. Los errores usan la forma
+`latest.<medición>` es `null` si el tanque aún no reportó esa medición. `active_batch` es el resumen
+del lote activo del tanque (ver [Lotes](#lotes)) o `null`. `open_alerts` es la cantidad de alertas
+sin resolver (`open` + `acknowledged`) del tanque (ver [Alertas](#alertas)). Los errores usan la forma
 unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido, `422` para un
 `tank_id` en blanco). Todos los instantes se devuelven en UTC.
 
 ### CORS
 
-`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET` y
-`POST`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
+`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST` y
+`PATCH`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
 `http://localhost:5173,http://localhost:3000`:
 
 ```sh
 CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
 ```
+
+## Lotes
+
+Un lote es una cerveza en un tanque, con sus rangos objetivo. Ciclo de vida: `planned` → `active`
+(`start`) → `finished` (`finish`). Reglas:
+
+- Un solo lote `active` por tanque: lo garantizan el caso de uso y un índice único parcial en la base
+  (`uq_batches_one_active_per_tank`, migración `0004`). Iniciar un segundo responde `409`.
+- Se edita en `planned` y `active`; uno `finished` ya no (`409`). Cualquier otra transición es `409`.
+- El tanque debe existir (`404` si no). Los instantes se guardan con zona horaria y se devuelven en UTC;
+  `started_at` y `finished_at` los fija el servidor (son la base de los reportes).
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /batch-templates` | Plantillas con rangos precargados: `ale` y `lager` (`custom` no tiene) |
+| `POST /batches` | `201` con el lote en `planned`; `404` tanque desconocido; `422` datos inválidos |
+| `GET /batches?tank_id=&status=` | Lotes, los más nuevos primero; filtros opcionales |
+| `GET /batches/{id}` | Un lote; `404` si no existe |
+| `PATCH /batches/{id}` | Edita solo los campos enviados; `422` inválido, `409` si ya terminó |
+| `POST /batches/{id}/start` | `planned` → `active`; `409` si hay otro activo en el tanque o no está planificado |
+| `POST /batches/{id}/finish` | `active` → `finished`; `409` si no está activo |
+
+Plantillas: `ale` = 18–21 °C, presión máx. 1.0 bar, ABV 5.0; `lager` = 8–12 °C, presión máx. 1.2 bar,
+ABV 5.2. Los campos de `targets` enviados al crear sobrescriben la plantilla (con `custom` son
+obligatorios `temperature_min`, `temperature_max` y `pressure_max`). Los límites deben ser coherentes
+(mín. < máx.) y estar dentro de los rangos físicos de cada medición; `expected_final_abv` es 0–20.
+
+```sh
+curl -X POST localhost:8000/batches -H 'Content-Type: application/json' -d '{
+  "tank_id": "tank-1", "beer_name": "Pale Ale", "style": "APA", "template": "ale",
+  "targets": {"temperature_max": 22.0}, "expected_end": "2026-02-01T00:00:00Z"
+}'
+curl -X POST localhost:8000/batches/<id>/start
+curl -X PATCH localhost:8000/batches/<id> -H 'Content-Type: application/json' -d '{"notes": "dry hop"}'
+curl -X POST localhost:8000/batches/<id>/finish
+```
+
+`GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
+`started_at`, `expected_end`), resuelto con una sola consulta para todos los tanques listados.
+
+## Alertas
+
+El backend evalúa alertas solo para tanques con un lote `active`, y solo con lecturas registradas desde
+que el lote empezó (`started_at`). Todo el tiempo se mide sobre `recorded_at`, no sobre la hora de llegada.
+
+| Tipo | Se abre cuando | Se resuelve cuando |
+| --- | --- | --- |
+| `out_of_range` (temperatura o presión) | el valor está fuera del rango del lote durante 5 min seguidos | vuelve al rango y se mantiene 2 min seguidos |
+| `silent_sensor` | el tanque no reporta ninguna lectura por 10 min (contados desde el inicio del lote si nunca reportó) | llega una lectura del tanque más nueva que la última que vio la alerta (`details.last_reading_at`) |
+
+- Los límites del rango cuentan como dentro del rango (solo se viola al superarlos); los umbrales de
+  tiempo se cumplen al alcanzarlos (`>=`). La presión usa `pressure_max` y, si existe, `pressure_min`.
+- El alcohol no genera alertas. Los sensores de un mismo tanque se evalúan en conjunto por medición.
+- La evaluación se ancla a la lectura almacenada más nueva de cada tanque y medición, no a la que
+  acaba de llegar: una lectura tardía o de un backlog nunca mueve las alertas hacia atrás (no resuelve
+  una alerta que las lecturas más nuevas siguen violando ni abre una con fecha en un periodo que ya
+  se sabe dentro del rango).
+- Una alerta `silent_sensor` solo se resuelve con una lectura estrictamente posterior a su
+  `details.last_reading_at`. Si esa lectura se registró antes de abrirse la alerta (backlog tras una
+  caída), se resuelve igual con `details.resolution = "late_data"`; `resolved_at` nunca es anterior a
+  `opened_at` (invariante del dominio). La recuperación normal no agrega `resolution`.
+- La duración fuera (o dentro) del rango se mide hacia atrás hasta la última lectura de la clase
+  opuesta, sin límite de ventana salvo el inicio del lote: funciona igual con sensores que reportan
+  con menos frecuencia que los umbrales (por ejemplo, una lectura cada 15 min).
+- La histéresis de 2 min evita que un valor que oscila sobre el límite abra y cierre alertas.
+- Ciclo de vida: `open` → `acknowledged` (`acknowledge`) → `resolved`; también `open` → `resolved`.
+  Una alerta reconocida igual se resuelve sola. Otras transiciones son inválidas.
+- Hay a lo sumo una alerta sin resolver por tanque, tipo y medición (índice único parcial
+  `uq_alerts_one_unresolved`, migración `0005`); al resolverse, un nuevo episodio abre otra alerta.
+- La evaluación por lectura corre en el ingestor y también en `POST /readings`, después de guardar la
+  lectura; un fallo de la evaluación se registra y nunca pierde la lectura. El ingestor además revisa
+  sensores silenciosos de forma periódica. El estado sale de la base, no de memoria, así que una
+  evaluación perdida se recupera con la siguiente lectura o la siguiente revisión.
+
+| Variable | Valor por defecto | Significado |
+| --- | --- | --- |
+| `ALERT_OUT_OF_RANGE_SECONDS` | `300` | Tiempo fuera de rango para abrir la alerta |
+| `ALERT_RESOLVE_SECONDS` | `120` | Tiempo de vuelta al rango para resolverla |
+| `ALERT_SILENT_SECONDS` | `600` | Silencio del sensor para abrir `silent_sensor` |
+| `ALERT_SILENT_CHECK_INTERVAL_SECONDS` | `60` | Cada cuánto el ingestor revisa sensores silenciosos |
+
+Todas deben ser mayores que 0. Con valores chicos (por ejemplo `20`, `10`, `30`, `5`) se ven alertas en
+segundos.
+
+### API de alertas
+
+| Método y ruta | Descripción |
+| --- | --- |
+| `GET /alerts` | Lista de alertas, la más reciente primero (por `opened_at`) |
+| `GET /alerts/{id}` | Una alerta; `404` si no existe |
+| `POST /alerts/{id}/acknowledge` | `open` → `acknowledged`; cuerpo opcional `{"version": n}` |
+
+Filtros de `GET /alerts` (todos opcionales): `tank_id`, `batch_id`, `kind` (`out_of_range` o
+`silent_sensor`), `status` (repetible: `?status=open&status=resolved`) y `limit` (1 a 500, por defecto
+100). **Sin `status` solo se devuelven las alertas sin resolver** (`open` y `acknowledged`); para ver
+las resueltas hay que pedirlas con `status=resolved`.
+
+```json
+{
+  "id": "0b0c8f0e-...", "tank_id": "tank-1", "batch_id": "6f1d...",
+  "kind": "out_of_range", "measurement": "temperature", "status": "acknowledged",
+  "opened_at": "2026-01-01T12:05:00Z", "acknowledged_at": "2026-01-01T12:09:00Z",
+  "resolved_at": null,
+  "details": {"observed": 25.5, "bound": "above", "target_min": 18.0, "target_max": 21.0},
+  "version": 2
+}
+```
+
+- `acknowledged_at` se toma del reloj del servidor. Reconocer una alerta **ya reconocida** es
+  idempotente: responde `200` con la alerta tal cual, sin escribir ni subir la versión.
+- Errores con la forma unificada `{"detail": [{"field", "message"}]}`: `404` (`alert_id`) si la alerta
+  no existe; `409` (`status`) si ya está resuelta; `409` (`version`) si el `version` enviado ya no es el
+  vigente o si otra escritura se adelantó; `422` para filtros o cuerpo inválidos.
 
 ## Series agregadas
 
@@ -292,6 +409,34 @@ async def main():
             print(message)
 asyncio.run(main())"
 ```
+
+### Alertas en vivo: `/ws/alerts`
+
+`ws://localhost:8000/ws/alerts` envía **cada cambio de cualquier alerta** (de todos los tanques) como un
+mensaje de texto JSON `{"type": "alert", "alert": <AlertOut>}`, con la misma forma de `AlertOut` de
+`GET /alerts`. Llega un mensaje por revisión guardada: al abrirse, al reconocerse y al resolverse (así
+que `alert.status` indica qué pasó).
+
+```json
+{"type": "alert", "alert": {"id": "0b0c8f0e-...", "tank_id": "tank-1", "status": "open", "...": "..."}}
+```
+
+Funciona igual que el WebSocket de lecturas: el adaptador de persistencia ejecuta
+`pg_notify('fermon_alerts', <json>)` en la misma transacción de cada alta o actualización de alerta
+(se entrega recién al `COMMIT`, dentro de un `SAVEPOINT`; un error de `NOTIFY` o un payload de más de
+7500 bytes se registra y nunca hace fallar la escritura de la alerta). La API usa **la misma conexión de
+escucha** para `fermon_readings` y `fermon_alerts`, con la misma reconexión y comprobación de salud.
+
+| Código de cierre | Significado |
+| ---------------- | ----------- |
+| `1011` | Error interno: no se pudo suscribir al flujo de alertas. Se acepta y se cierra con el motivo `internal error`. |
+| `4403` | Origen no permitido: mismas reglas de `CORS_ORIGINS` que `/ws/tanks/{id}`. |
+
+- Mejor esfuerzo, sin repetición: las alertas que cambian mientras el cliente estaba desconectado, o
+  mientras la API había perdido su conexión de escucha, no se reenvían. Al (re)conectar hay que
+  completar con `GET /alerts`.
+- Cliente lento: cola acotada de 100 mensajes por suscriptor; si se llena se descarta el más antiguo.
+- Los mensajes que envía el cliente se ignoran.
 
 ## Frontend
 

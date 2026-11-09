@@ -1,19 +1,46 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Query, Response, status
 from pydantic import AwareDatetime
 
+from fermon.fermentation.application.batches import CreateBatchCommand
 from fermon.fermentation.application.ingest_reading import IngestReadingCommand
-from fermon.fermentation.domain import AggregationBucket, MeasurementType, normalize_id
+from fermon.fermentation.application.manage_alerts import DEFAULT_LIMIT, MAX_LIMIT
+from fermon.fermentation.domain import (
+    AggregationBucket,
+    AlertKind,
+    AlertStatus,
+    BatchStatus,
+    MeasurementType,
+    StyleTemplate,
+    normalize_id,
+    template_targets,
+)
 from fermon.fermentation.infrastructure.http.dependencies import (
+    AcknowledgeAlertDep,
+    CreateBatchDep,
+    FinishBatchDep,
+    GetAlertDep,
+    GetBatchDep,
     GetTankDep,
     IngestReadingDep,
     ListAggregatedReadingsDep,
+    ListAlertsDep,
+    ListBatchesDep,
     ListReadingsDep,
     ListTanksDep,
+    StartBatchDep,
+    UpdateBatchDep,
 )
 from fermon.fermentation.infrastructure.http.schemas import (
+    AcknowledgeIn,
     AggregatedReadingsOut,
+    AlertOut,
+    BatchIn,
+    BatchOut,
+    BatchPatch,
+    BatchTemplateOut,
     ErrorResponse,
     ReadingIn,
     ReadingOut,
@@ -100,3 +127,140 @@ async def list_aggregated_readings(
         list(dict.fromkeys(measurement)) if measurement else list(MeasurementType),
         points,
     )
+
+
+@router.get("/batch-templates")
+async def list_batch_templates() -> list[BatchTemplateOut]:
+    """The style presets that prefill a batch's target ranges (`custom` has none)."""
+    return [
+        BatchTemplateOut.from_domain(template, targets)
+        for template in StyleTemplate
+        if (targets := template_targets(template)) is not None
+    ]
+
+
+@router.post(
+    "/batches",
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def create_batch(body: BatchIn, use_case: CreateBatchDep) -> BatchOut:
+    """Plan a batch in a registered tank.
+
+    The `template` prefills the targets; fields sent in `targets` override it. A `custom`
+    template needs `temperature_min`, `temperature_max` and `pressure_max`. `planned_start`
+    defaults to now.
+    """
+    command = CreateBatchCommand(
+        tank_id=body.tank_id,
+        beer_name=body.beer_name,
+        style=body.style,
+        template=body.template,
+        targets=body.targets.model_dump(exclude_unset=True) if body.targets else None,
+        planned_start=body.planned_start,
+        expected_end=body.expected_end,
+        notes=body.notes,
+    )
+    return BatchOut.from_domain(await use_case.execute(command))
+
+
+@router.get("/batches", responses={422: {"model": ErrorResponse}})
+async def list_batches(
+    use_case: ListBatchesDep,
+    tank_id: Annotated[str | None, Query()] = None,
+    status: Annotated[BatchStatus | None, Query()] = None,
+) -> list[BatchOut]:
+    """List batches, newest first, optionally filtered by tank and/or status."""
+    return [BatchOut.from_domain(b) for b in await use_case.execute(tank_id, status)]
+
+
+@router.get(
+    "/batches/{batch_id}",
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def get_batch(batch_id: UUID, use_case: GetBatchDep) -> BatchOut:
+    """One batch; 404 if unknown."""
+    return BatchOut.from_domain(await use_case.execute(batch_id))
+
+
+@router.patch(
+    "/batches/{batch_id}",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+async def update_batch(batch_id: UUID, body: BatchPatch, use_case: UpdateBatchDep) -> BatchOut:
+    """Edit a planned or active batch (409 once finished). Only the fields sent change.
+
+    `version` is optional: if sent and the batch has moved on, responds 409 on `version`.
+    """
+    changes = body.model_dump(exclude_unset=True)
+    expected_version = changes.pop("version", None)
+    return BatchOut.from_domain(await use_case.execute(batch_id, changes, expected_version))
+
+
+@router.post(
+    "/batches/{batch_id}/start",
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+async def start_batch(batch_id: UUID, use_case: StartBatchDep) -> BatchOut:
+    """planned -> active. 409 if not planned or if the tank already has an active batch."""
+    return BatchOut.from_domain(await use_case.execute(batch_id))
+
+
+@router.post(
+    "/batches/{batch_id}/finish",
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+async def finish_batch(batch_id: UUID, use_case: FinishBatchDep) -> BatchOut:
+    """active -> finished. 409 if the batch is not active."""
+    return BatchOut.from_domain(await use_case.execute(batch_id))
+
+
+@router.get("/alerts", responses={422: {"model": ErrorResponse}})
+async def list_alerts(
+    use_case: ListAlertsDep,
+    tank_id: Annotated[str | None, Query()] = None,
+    batch_id: Annotated[UUID | None, Query()] = None,
+    status: Annotated[list[AlertStatus] | None, Query()] = None,
+    kind: Annotated[AlertKind | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+) -> list[AlertOut]:
+    """List alerts, newest first (by opening time).
+
+    `status` may be repeated; by default only unresolved alerts (open and acknowledged) are
+    returned. `limit` caps the result (default 100, max 500).
+    """
+    alerts = await use_case.execute(tank_id, batch_id, status, kind, limit)
+    return [AlertOut.from_domain(a) for a in alerts]
+
+
+@router.get(
+    "/alerts/{alert_id}",
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def get_alert(alert_id: UUID, use_case: GetAlertDep) -> AlertOut:
+    """One alert; 404 if unknown."""
+    return AlertOut.from_domain(await use_case.execute(alert_id))
+
+
+@router.post(
+    "/alerts/{alert_id}/acknowledge",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+async def acknowledge_alert(
+    alert_id: UUID, use_case: AcknowledgeAlertDep, body: AcknowledgeIn | None = None
+) -> AlertOut:
+    """open -> acknowledged. Idempotent: an already acknowledged alert is returned as is (200).
+
+    409 on `status` if the alert is already resolved; 409 on `version` if the optional `version`
+    in the body is stale.
+    """
+    expected_version = body.version if body is not None else None
+    return AlertOut.from_domain(await use_case.execute(alert_id, expected_version))

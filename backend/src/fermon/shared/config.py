@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Annotated, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 _FORBIDDEN_PREFIX_CHARS = ("+", "#", "/")
@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     mqtt_client_id: str = "fermon-ingestor"
     mqtt_topic_prefix: str = "fermon"
     mqtt_clean_session: bool = False
+    # Alert rules (seconds, > 0); see the README. Small values let e2e/smoke runs see alerts fast.
+    alert_out_of_range_seconds: int = Field(default=300, gt=0)
+    alert_resolve_seconds: int = Field(default=120, gt=0)
+    alert_silent_seconds: int = Field(default=600, gt=0)
+    alert_silent_check_interval_seconds: int = Field(default=60, gt=0)
     # Where the ingestor finds Alembic's config; override when not running from the source tree.
     alembic_ini_path: Path = DEFAULT_ALEMBIC_INI_PATH
     # Origins allowed to call the API from a browser. NoDecode: the env value is a plain

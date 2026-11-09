@@ -52,3 +52,81 @@ class TooManyPointsError(DomainError):
             f"range too large: more than {limit} points with bucket '{bucket}'; "
             "narrow the range or use a larger bucket"
         )
+
+
+class InvalidBatchError(DomainError):
+    """Raised when a batch (or its target ranges) violates a domain invariant."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(f"invalid {field}: {message}")
+        self.field = field
+        self.reason = message
+
+
+class InvalidBatchTransitionError(DomainError):
+    """Raised when an action is not allowed in the batch's current status."""
+
+    def __init__(self, batch_id: str, status: str, action: str) -> None:
+        super().__init__(f"cannot {action} batch '{batch_id}': it is {status}")
+        self.batch_id = batch_id
+        self.status = status
+        self.action = action
+
+
+class ActiveBatchConflictError(DomainError):
+    """Raised when a tank would end up with two active batches."""
+
+    def __init__(self, tank_id: str) -> None:
+        super().__init__(f"tank '{tank_id}' already has an active batch")
+        self.tank_id = tank_id
+
+
+class ConcurrentBatchUpdateError(DomainError):
+    """Raised when a batch changed since it was read, so writing the stale copy would lose data."""
+
+    def __init__(self, batch_id: str) -> None:
+        super().__init__(f"batch '{batch_id}' was modified concurrently; reload and retry")
+        self.batch_id = batch_id
+
+
+class BatchNotFoundError(DomainError):
+    """Raised when a batch that was asked for does not exist."""
+
+    def __init__(self, batch_id: str) -> None:
+        super().__init__(f"batch '{batch_id}' not found")
+        self.batch_id = batch_id
+
+
+class AlertNotFoundError(DomainError):
+    """Raised when an alert that was asked for does not exist."""
+
+    def __init__(self, alert_id: str) -> None:
+        super().__init__(f"alert '{alert_id}' not found")
+        self.alert_id = alert_id
+
+
+class InvalidAlertError(DomainError):
+    """Raised when an alert (or the alert rules) violates a domain invariant."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(f"invalid {field}: {message}")
+        self.field = field
+        self.reason = message
+
+
+class InvalidAlertTransitionError(DomainError):
+    """Raised when an action is not allowed in the alert's current status."""
+
+    def __init__(self, alert_id: str, status: str, action: str) -> None:
+        super().__init__(f"cannot {action} alert '{alert_id}': it is {status}")
+        self.alert_id = alert_id
+        self.status = status
+        self.action = action
+
+
+class ConcurrentAlertUpdateError(DomainError):
+    """Raised when an alert changed since it was read, so writing the stale copy would lose data."""
+
+    def __init__(self, alert_id: str) -> None:
+        super().__init__(f"alert '{alert_id}' was modified concurrently; reload and retry")
+        self.alert_id = alert_id

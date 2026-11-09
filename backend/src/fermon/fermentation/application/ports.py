@@ -149,11 +149,18 @@ class AlertRepository(Protocol):
     async def list(
         self,
         tank_id: str | None = None,
-        status: AlertStatus | None = None,
+        statuses: Sequence[AlertStatus] | None = None,
         kind: AlertKind | None = None,
         batch_id: UUID | None = None,
+        limit: int | None = None,
     ) -> list[Alert]:
-        """Alerts matching the optional filters, newest first (by opening time)."""
+        """Alerts matching the optional filters (any of ``statuses``), newest first by opening
+        time, at most ``limit`` of them (all without one).
+        """
+        ...
+
+    async def count_unresolved(self, tank_ids: Sequence[str]) -> dict[str, int]:
+        """Unresolved (open + acknowledged) alerts per given tank, in one query; none: absent."""
         ...
 
     async def get_unresolved(

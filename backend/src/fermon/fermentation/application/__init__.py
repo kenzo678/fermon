@@ -24,6 +24,11 @@ from fermon.fermentation.application.ingest_reading import (
 from fermon.fermentation.application.list_aggregated_readings import ListAggregatedReadings
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
+from fermon.fermentation.application.manage_alerts import (
+    AcknowledgeAlert,
+    GetAlert,
+    ListAlerts,
+)
 from fermon.fermentation.application.ports import (
     AlertRepository,
     BatchRepository,
@@ -33,6 +38,9 @@ from fermon.fermentation.application.ports import (
 from fermon.fermentation.application.tank_overview import TankOverview
 
 __all__ = [
+    "AcknowledgeAlert",
+    "GetAlert",
+    "ListAlerts",
     "AlertRepository",
     "CheckSilentSensors",
     "EvaluateReadingAlerts",

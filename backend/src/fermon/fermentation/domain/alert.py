@@ -24,6 +24,8 @@ class AlertStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+UNRESOLVED_STATUSES = (AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED)
+
 # Measurements that have target ranges to alert on (alcohol only shows progress).
 ALERTABLE_MEASUREMENTS = (MeasurementType.TEMPERATURE, MeasurementType.PRESSURE)
 

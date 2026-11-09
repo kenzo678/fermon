@@ -204,19 +204,28 @@ class InMemoryAlertRepository:
     async def list(
         self,
         tank_id: str | None = None,
-        status: AlertStatus | None = None,
+        statuses: Sequence[AlertStatus] | None = None,
         kind: AlertKind | None = None,
         batch_id: UUID | None = None,
+        limit: int | None = None,
     ) -> list[Alert]:
         matching = [
             a
             for a in self.alerts.values()
             if (tank_id is None or a.tank_id == tank_id)
-            and (status is None or a.status is status)
+            and (statuses is None or a.status in statuses)
             and (kind is None or a.kind is kind)
             and (batch_id is None or a.batch_id == batch_id)
         ]
-        return sorted(matching, key=lambda a: (a.opened_at, str(a.id)), reverse=True)
+        newest_first = sorted(matching, key=lambda a: (a.opened_at, str(a.id)), reverse=True)
+        return newest_first[:limit]
+
+    async def count_unresolved(self, tank_ids: Sequence[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for a in self.alerts.values():
+            if a.is_unresolved and a.tank_id in tank_ids:
+                counts[a.tank_id] = counts.get(a.tank_id, 0) + 1
+        return counts
 
     async def get_unresolved(
         self, tank_id: str, kind: AlertKind, measurement: MeasurementType | None

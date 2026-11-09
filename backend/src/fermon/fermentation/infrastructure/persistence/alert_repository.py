@@ -1,8 +1,10 @@
+import logging
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import CursorResult, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import CursorResult, Executable, func, select, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fermon.fermentation.domain import (
@@ -13,9 +15,19 @@ from fermon.fermentation.domain import (
     MeasurementType,
     normalize_id,
 )
+from fermon.fermentation.infrastructure.persistence.reading_repository import (
+    MAX_NOTIFY_PAYLOAD_BYTES,
+)
 from fermon.fermentation.infrastructure.persistence.tables import alerts
+from fermon.fermentation.infrastructure.realtime.payload import ALERTS_CHANNEL, encode_alert
+
+logger = logging.getLogger(__name__)
 
 ONE_UNRESOLVED_INDEX = "uq_alerts_one_unresolved"
+
+
+def _notify_statement(payload: str) -> Executable:
+    return select(func.pg_notify(ALERTS_CHANNEL, payload))
 
 
 class SqlAlchemyAlertRepository:
@@ -26,6 +38,7 @@ class SqlAlchemyAlertRepository:
         try:
             async with self._session_factory() as session, session.begin():
                 await session.execute(alerts.insert().values(**_to_row(alert)))
+                await self._notify(session, alert)
         except IntegrityError as error:
             # Another unresolved alert for the same key is the idempotent outcome of a racing
             # evaluation; any other violation (FK, CHECK) is a bug and must surface.
@@ -45,8 +58,28 @@ class SqlAlchemyAlertRepository:
         async with self._session_factory() as session, session.begin():
             result = await session.execute(statement)
             matched = cast(CursorResult[Any], result).rowcount
+            if matched:
+                await self._notify(session, alert)
         if matched == 0:
             raise ConcurrentAlertUpdateError(str(alert.id))
+
+    async def _notify(self, session: AsyncSession, alert: Alert) -> None:
+        """Best-effort realtime signal; it must never cost the caller a stored alert write.
+
+        Queued in the writing transaction (delivered on commit, never for a rolled-back write);
+        a SAVEPOINT confines a NOTIFY error to the NOTIFY, so the write still commits.
+        """
+        payload = encode_alert(alert)
+        if len(payload.encode()) > MAX_NOTIFY_PAYLOAD_BYTES:
+            logger.warning(
+                "skipping realtime notify: payload exceeds %d bytes", MAX_NOTIFY_PAYLOAD_BYTES
+            )
+            return
+        try:
+            async with session.begin_nested():
+                await session.execute(_notify_statement(payload))
+        except SQLAlchemyError:
+            logger.warning("realtime notify failed; the alert was stored", exc_info=True)
 
     async def get(self, alert_id: UUID) -> Alert | None:
         async with self._session_factory() as session:
@@ -56,22 +89,40 @@ class SqlAlchemyAlertRepository:
     async def list(
         self,
         tank_id: str | None = None,
-        status: AlertStatus | None = None,
+        statuses: Sequence[AlertStatus] | None = None,
         kind: AlertKind | None = None,
         batch_id: UUID | None = None,
+        limit: int | None = None,
     ) -> list[Alert]:
         statement = select(alerts).order_by(alerts.c.opened_at.desc(), alerts.c.id.desc())
         if tank_id is not None:
             statement = statement.where(alerts.c.tank_id == normalize_id("tank_id", tank_id))
-        if status is not None:
-            statement = statement.where(alerts.c.status == status.value)
+        if statuses is not None:
+            statement = statement.where(alerts.c.status.in_([s.value for s in statuses]))
         if kind is not None:
             statement = statement.where(alerts.c.kind == kind.value)
         if batch_id is not None:
             statement = statement.where(alerts.c.batch_id == batch_id)
+        if limit is not None:
+            statement = statement.limit(limit)
         async with self._session_factory() as session:
             rows = (await session.execute(statement)).all()
         return [_to_domain(row) for row in rows]
+
+    async def count_unresolved(self, tank_ids: Sequence[str]) -> dict[str, int]:
+        if not tank_ids:
+            return {}
+        statement = (
+            select(alerts.c.tank_id, func.count())
+            .where(
+                alerts.c.tank_id.in_(tank_ids),
+                alerts.c.status != AlertStatus.RESOLVED.value,
+            )
+            .group_by(alerts.c.tank_id)
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        return {tank_id: count for tank_id, count in rows}
 
     async def get_unresolved(
         self, tank_id: str, kind: AlertKind, measurement: MeasurementType | None

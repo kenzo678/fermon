@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -9,6 +10,7 @@ from fermon.fermentation.application import TankOverview
 from fermon.fermentation.domain import (
     AggregatedPoint,
     AggregationBucket,
+    Alert,
     Batch,
     MeasurementType,
     Reading,
@@ -188,11 +190,59 @@ class ActiveBatchOut(BaseModel):
         )
 
 
+class AlertOut(BaseModel):
+    id: UUID
+    tank_id: str
+    batch_id: UUID
+    kind: str
+    measurement: str | None
+    status: str
+    opened_at: AwareDatetime
+    acknowledged_at: AwareDatetime | None
+    resolved_at: AwareDatetime | None
+    details: dict[str, Any]
+    version: int
+
+    @classmethod
+    def from_domain(cls, alert: Alert) -> "AlertOut":
+        return cls(
+            id=alert.id,
+            tank_id=alert.tank_id,
+            batch_id=alert.batch_id,
+            kind=alert.kind.value,
+            measurement=alert.measurement.value if alert.measurement else None,
+            status=alert.status.value,
+            opened_at=alert.opened_at.astimezone(UTC),
+            acknowledged_at=_utc(alert.acknowledged_at),
+            resolved_at=_utc(alert.resolved_at),
+            details=alert.details,
+            version=alert.version,
+        )
+
+
+class AcknowledgeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int | None = Field(
+        default=None,
+        ge=1,
+        description="If sent, the acknowledgement applies only while the alert is at this version.",
+    )
+
+
+class AlertEventOut(BaseModel):
+    """One message of the ``/ws/alerts`` stream: the alert as it is after the change."""
+
+    type: Literal["alert"] = "alert"
+    alert: AlertOut
+
+
 class TankOut(BaseModel):
     id: str
     display_name: str | None
     first_seen_at: AwareDatetime
     active_batch: ActiveBatchOut | None
+    open_alerts: int
     latest: LatestReadingsOut
 
     @classmethod
@@ -210,6 +260,7 @@ class TankOut(BaseModel):
                 if overview.active_batch is not None
                 else None
             ),
+            open_alerts=overview.open_alerts,
             latest=LatestReadingsOut(
                 temperature=newest(MeasurementType.TEMPERATURE),
                 pressure=newest(MeasurementType.PRESSURE),

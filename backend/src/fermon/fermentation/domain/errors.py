@@ -97,6 +97,14 @@ class BatchNotFoundError(DomainError):
         self.batch_id = batch_id
 
 
+class AlertNotFoundError(DomainError):
+    """Raised when an alert that was asked for does not exist."""
+
+    def __init__(self, alert_id: str) -> None:
+        super().__init__(f"alert '{alert_id}' not found")
+        self.alert_id = alert_id
+
+
 class InvalidAlertError(DomainError):
     """Raised when an alert (or the alert rules) violates a domain invariant."""
 

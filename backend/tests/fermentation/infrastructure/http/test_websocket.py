@@ -4,16 +4,29 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta, timezone
+from uuid import UUID
 
 import pytest
 from starlette.testclient import TestClient
 
 from fermon.fermentation.application import GetTank
-from fermon.fermentation.domain import MeasurementType, Reading, Tank
-from fermon.fermentation.infrastructure.http.dependencies import get_get_tank, get_reading_feed
+from fermon.fermentation.domain import (
+    Alert,
+    AlertKind,
+    AlertStatus,
+    MeasurementType,
+    Reading,
+    Tank,
+)
+from fermon.fermentation.infrastructure.http.dependencies import (
+    get_alert_feed,
+    get_get_tank,
+    get_reading_feed,
+)
 from fermon.main import create_app
 from fermon.shared.config import Settings
 from tests.fermentation.fakes import (
+    InMemoryAlertRepository,
     InMemoryBatchRepository,
     InMemoryReadingRepository,
     InMemoryTankRepository,
@@ -51,20 +64,62 @@ class FakeFeed:
             self.active -= 1
 
 
+def alert(n: int = 1, status: AlertStatus = AlertStatus.OPEN) -> Alert:
+    return Alert(
+        id=UUID(int=n),
+        tank_id=f"tank-{n}",
+        batch_id=UUID(int=1),
+        kind=AlertKind.OUT_OF_RANGE,
+        measurement=MeasurementType.TEMPERATURE,
+        status=status,
+        opened_at=T0,
+        acknowledged_at=T0 if status is AlertStatus.ACKNOWLEDGED else None,
+        details={"observed": 25.5},
+        version=2 if status is AlertStatus.ACKNOWLEDGED else 1,
+    )
+
+
+class FakeAlertFeed:
+    """Hands every subscriber the alerts queued in ``pending`` and counts live subscribers."""
+
+    def __init__(self) -> None:
+        self.pending: list[Alert] = []
+        self.active = 0
+        self.entered = threading.Event()
+
+    @contextmanager
+    def subscribe_alerts(self) -> Iterator[asyncio.Queue[Alert]]:
+        queue: asyncio.Queue[Alert] = asyncio.Queue()
+        for item in self.pending:
+            queue.put_nowait(item)
+        self.active += 1
+        self.entered.set()
+        try:
+            yield queue
+        finally:
+            self.active -= 1
+
+
+@pytest.fixture
+def alert_feed() -> FakeAlertFeed:
+    return FakeAlertFeed()
+
+
 @pytest.fixture
 def feed() -> FakeFeed:
     return FakeFeed()
 
 
 @pytest.fixture
-def client(feed: FakeFeed) -> TestClient:
+def client(feed: FakeFeed, alert_feed: FakeAlertFeed) -> TestClient:
     tanks, readings = InMemoryTankRepository(), InMemoryReadingRepository()
     tanks.tanks["tank-1"] = Tank(id="tank-1", display_name=None, first_seen_at=T0)
     app = create_app(Settings(cors_origins=[ALLOWED]))
     app.dependency_overrides[get_get_tank] = lambda: GetTank(
-        tanks, readings, InMemoryBatchRepository()
+        tanks, readings, InMemoryBatchRepository(), InMemoryAlertRepository()
     )
     app.dependency_overrides[get_reading_feed] = lambda: feed
+    app.dependency_overrides[get_alert_feed] = lambda: alert_feed
     return TestClient(app)
 
 
@@ -165,3 +220,91 @@ def test_tank_lookup_infrastructure_failure_closes_with_1011_and_logs(
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert errors and errors[0].exc_info is not None
     assert feed.subscribed == []
+
+
+# --- /ws/alerts -------------------------------------------------------------------------------
+
+
+def test_alert_stream_pushes_every_alert_wrapped_in_a_typed_event(
+    client: TestClient, alert_feed: FakeAlertFeed
+) -> None:
+    alert_feed.pending = [alert(1), alert(2, AlertStatus.ACKNOWLEDGED)]
+
+    with client.websocket_connect("/ws/alerts") as ws:
+        first, second = ws.receive_json(), ws.receive_json()
+
+    assert first == {
+        "type": "alert",
+        "alert": {
+            "id": str(UUID(int=1)),
+            "tank_id": "tank-1",
+            "batch_id": str(UUID(int=1)),
+            "kind": "out_of_range",
+            "measurement": "temperature",
+            "status": "open",
+            "opened_at": "2026-01-01T12:00:00Z",
+            "acknowledged_at": None,
+            "resolved_at": None,
+            "details": {"observed": 25.5},
+            "version": 1,
+        },
+    }
+    assert second["alert"]["tank_id"] == "tank-2"  # all tanks, not just one
+    assert second["alert"]["status"] == "acknowledged"
+    assert second["alert"]["acknowledged_at"] == "2026-01-01T12:00:00Z"
+
+
+def test_disconnecting_from_the_alert_stream_unsubscribes(
+    client: TestClient, alert_feed: FakeAlertFeed
+) -> None:
+    with client.websocket_connect("/ws/alerts") as ws:
+        ws.send_text("ignored chatter")
+        assert alert_feed.entered.wait(timeout=5)
+        assert alert_feed.active == 1
+
+    assert alert_feed.active == 0
+
+
+def test_alert_stream_closes_a_disallowed_origin_with_4403_after_accept(
+    client: TestClient, alert_feed: FakeAlertFeed
+) -> None:
+    with client.websocket_connect("/ws/alerts", headers={"origin": DISALLOWED}) as ws:
+        message = ws.receive()
+
+    assert message["type"] == "websocket.close"
+    assert message["code"] == 4403
+    assert message["reason"]
+    assert alert_feed.active == 0 and not alert_feed.entered.is_set()
+
+
+def test_alert_stream_accepts_allowed_origin_and_originless_clients(
+    client: TestClient, alert_feed: FakeAlertFeed
+) -> None:
+    alert_feed.pending = [alert(1)]
+
+    with client.websocket_connect("/ws/alerts", headers={"origin": ALLOWED}) as ws:
+        assert ws.receive_json()["alert"]["id"] == str(UUID(int=1))
+    with client.websocket_connect("/ws/alerts") as ws:
+        assert ws.receive_json()["alert"]["id"] == str(UUID(int=1))
+
+
+class FailingAlertFeed:
+    def subscribe_alerts(self) -> object:
+        raise ConnectionError("listener exploded")
+
+
+def test_alert_stream_subscription_failure_closes_with_1011_and_logs(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    client.app.dependency_overrides[get_alert_feed] = lambda: FailingAlertFeed()  # type: ignore[attr-defined]
+
+    with caplog.at_level(logging.ERROR):
+        with client.websocket_connect("/ws/alerts") as ws:
+            message = ws.receive()
+
+    assert message["type"] == "websocket.close"
+    assert message["code"] == 1011
+    assert message["reason"] == "internal error"
+    assert "exploded" not in message["reason"]
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors and errors[0].exc_info is not None

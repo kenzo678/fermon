@@ -44,8 +44,8 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   repositorio, casos de uso (crear, editar, iniciar, finalizar, listar, lote activo por tanque), API
   REST; `GET /tanks` incluye el lote activo.
 - [x] T2a — Núcleo del motor de alertas (reglas, ciclo de vida, persistencia, evaluación).
-- [ ] T2b — API de alertas y aviso en tiempo real.
-- [ ] T2 (original) — Motor de alertas: reglas fuera de rango sostenido (5 min) y sensor silencioso (10 min),
+- [x] T2b — API de alertas y aviso en tiempo real.
+- [x] T2 (original) — Motor de alertas: reglas fuera de rango sostenido (5 min) y sensor silencioso (10 min),
   ciclo de vida abierta/reconocida/resuelta, persistencia, API (`GET /alerts`, reconocer), aviso en
   tiempo real por WebSocket. PR del backend.
 - [ ] T3 — UI de lotes: formulario (con plantillas), estados, lote activo en la tarjeta y en el
@@ -138,9 +138,32 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   RED: 4 failed (`expected 1, got 0` en fake y SQL; `datetime(12:01) == None` en el empate); 2 de
   caracterización declarados. GREEN 510 passed (verificado por el orquestador); ruff/format/mypy OK.
 
+- T2b completada (ruta delegada, un escritor). `ListAlerts` (por defecto no resueltas, más nuevas
+  primero, `limit` 1–500), `GetAlert` (404), `AcknowledgeAlert` (reconocer una ya reconocida = no-op
+  200; resuelta → 409 `status`; versión vieja → 409 `version`). API `GET /alerts`, `GET /alerts/{id}`,
+  `POST /alerts/{id}/acknowledge`. `GET /tanks` con `open_alerts` (un `GROUP BY` para todos).
+  `RealtimeBroadcaster` generaliza el listener: una conexión, un `_Topic` por canal (lecturas y
+  alertas), reconexión y health check una sola vez. Las escrituras de alertas emiten
+  `pg_notify('fermon_alerts')` en SAVEPOINT con el mismo tope de 7500 bytes, solo si el insert o el
+  update ocurrió. WebSocket `/ws/alerts` (`{"type":"alert","alert":...}`, 4403/1011). Evidencia TDD:
+  RED de import (`manage_alerts`, `get_acknowledge_alert`, `RealtimeBroadcaster`), `TypeError` de
+  constructores, 5 failed de la ruta WS, 7 failed de integración; la reescritura del broadcaster se
+  escribió antes de correr sus tests (declarado). GREEN 557 passed (2 corridas del orquestador; el
+  escritor vio un error no reproducible en 1 de 11 corridas); frontend 132 passed. Smoke dev con
+  umbrales cortos: `open` → `acknowledged` → `resolved` (`batch_finished`) recibidos por
+  `/ws/alerts`; `open_alerts` 0 → 1 → 0; reconocer una resuelta → 409.
+
+- Revisión RDD de T2b (`4c5544b`, 1749 líneas): aprobada por el usuario, **aprobada** y reconocida.
+  WARNING `R3-ack-concurrent-idempotency` corregido inline con TDD por el orquestador: sin
+  `expected_version`, un conflicto de escritura se relee (hasta 3 intentos); dos "Reconocer"
+  simultáneos terminan bien, y una resolución concurrente devuelve la transición inválida real
+  (409 `status`) en vez de un 409 de versión opaco. Con `expected_version` el conflicto se mantiene.
+  RED: 2 failed; GREEN 559 passed; ruff/format/mypy OK.
+- Entrega: push y PR del backend (T1, T2a, T2b).
+
 ## Trabajo futuro
 - Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de
   refresh de los continuous aggregates (`tuple concurrently deleted`); visto una vez, no se reprodujo.
 
 ## Próximo paso
-T2b — API de alertas y aviso en tiempo real.
+Merge del PR del backend (decisión del usuario); después T3 (UI de lotes) en una rama nueva.

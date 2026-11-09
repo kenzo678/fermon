@@ -19,6 +19,7 @@ from fermon.fermentation.application.ports import (
 )
 from fermon.fermentation.domain import (
     ALERTABLE_MEASUREMENTS,
+    UNRESOLVED_STATUSES,
     Alert,
     AlertAction,
     AlertKind,
@@ -231,10 +232,7 @@ class CheckSilentSensors:
 
 
 async def _unresolved(alerts: AlertRepository, batch_id: UUID | None = None) -> list[Alert]:
-    found: list[Alert] = []
-    for status in (AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED):
-        found += await alerts.list(status=status, batch_id=batch_id)
-    return found
+    return await alerts.list(statuses=UNRESOLVED_STATUSES, batch_id=batch_id)
 
 
 class ResolveBatchAlerts:

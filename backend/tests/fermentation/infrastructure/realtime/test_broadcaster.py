@@ -3,15 +3,21 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 import pytest
 
-from fermon.fermentation.domain import MeasurementType, Reading
+from fermon.fermentation.domain import Alert, AlertKind, AlertStatus, MeasurementType, Reading
 from fermon.fermentation.infrastructure.realtime.broadcaster import (
-    ReadingBroadcaster,
+    RealtimeBroadcaster,
     listen_dsn,
 )
-from fermon.fermentation.infrastructure.realtime.payload import READINGS_CHANNEL, encode_reading
+from fermon.fermentation.infrastructure.realtime.payload import (
+    ALERTS_CHANNEL,
+    READINGS_CHANNEL,
+    encode_alert,
+    encode_reading,
+)
 from fermon.shared.waiting import sleep_or_stop
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -19,6 +25,18 @@ T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
 def reading(tank: str = "tank-1", value: float = 18.0) -> Reading:
     return Reading(tank, "s1", MeasurementType.TEMPERATURE, value, "celsius", T0)
+
+
+def alert(n: int = 1, tank: str = "tank-1") -> Alert:
+    return Alert(
+        id=UUID(int=n),
+        tank_id=tank,
+        batch_id=UUID(int=1),
+        kind=AlertKind.OUT_OF_RANGE,
+        measurement=MeasurementType.TEMPERATURE,
+        status=AlertStatus.OPEN,
+        opened_at=T0,
+    )
 
 
 class FakeConnection:
@@ -54,6 +72,9 @@ class FakeConnection:
     def notify(self, payload: str) -> None:
         self.listeners[READINGS_CHANNEL](self, 1, READINGS_CHANNEL, payload)
 
+    def notify_alert(self, payload: str) -> None:
+        self.listeners[ALERTS_CHANNEL](self, 1, ALERTS_CHANNEL, payload)
+
     def drop(self) -> None:
         for callback in self.termination:
             callback(self)
@@ -82,8 +103,8 @@ class Harness:
         self.waited.set()
         await asyncio.sleep(0)
 
-    def broadcaster(self, **kwargs: Any) -> ReadingBroadcaster:
-        return ReadingBroadcaster(
+    def broadcaster(self, **kwargs: Any) -> RealtimeBroadcaster:
+        return RealtimeBroadcaster(
             "postgresql://u:p@db/x", connect=self.connect, wait=self.wait, **kwargs
         )
 
@@ -92,7 +113,7 @@ async def next_message(queue: asyncio.Queue[Reading]) -> Reading:
     return await asyncio.wait_for(queue.get(), timeout=2)
 
 
-async def started(harness: Harness, **kwargs: Any) -> ReadingBroadcaster:
+async def started(harness: Harness, **kwargs: Any) -> RealtimeBroadcaster:
     broadcaster = harness.broadcaster(**kwargs)
     await broadcaster.start()
     await asyncio.wait_for(harness.connected.wait(), timeout=2)
@@ -234,7 +255,7 @@ async def test_reconnect_delivers_new_readings_to_existing_subscribers(
 
 
 async def test_stop_is_prompt_while_waiting_to_reconnect_and_closes_the_connection() -> None:
-    failing = ReadingBroadcaster(
+    failing = RealtimeBroadcaster(
         "postgresql://x/y", connect=Harness(*[OSError("down")] * 50).connect, wait=sleep_or_stop
     )
     await failing.start()
@@ -338,7 +359,7 @@ async def test_stop_returns_promptly_while_connect_is_blocked() -> None:
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
 
-    broadcaster = ReadingBroadcaster(
+    broadcaster = RealtimeBroadcaster(
         "postgresql://u:p@db/x", connect=hanging_connect, stop_grace=0.05
     )
     await broadcaster.start()
@@ -377,3 +398,96 @@ async def test_stop_cancelling_a_hanging_close_still_terminates_the_connection()
     await asyncio.wait_for(broadcaster.stop(), timeout=2)
 
     assert connection.terminated
+
+
+# --- alerts channel ---------------------------------------------------------------------------
+
+
+async def test_one_connection_listens_to_both_channels() -> None:
+    conn = FakeConnection()
+    harness = Harness(conn)
+    broadcaster = await started(harness)
+    try:
+        assert set(conn.listeners) == {READINGS_CHANNEL, ALERTS_CHANNEL}
+        assert len(harness.dsns) == 1
+    finally:
+        await broadcaster.stop()
+
+
+async def test_every_alert_subscriber_hears_every_alert_whatever_the_tank() -> None:
+    conn = FakeConnection()
+    broadcaster = await started(Harness(conn))
+    try:
+        with broadcaster.subscribe_alerts() as one, broadcaster.subscribe_alerts() as two:
+            with broadcaster.subscribe("tank-1") as readings:
+                conn.notify_alert(encode_alert(alert(1, "tank-1")))
+                conn.notify_alert(encode_alert(alert(2, "tank-2")))
+
+                assert [(await next_message(one)).id.int, (await next_message(one)).id.int] == [
+                    1,
+                    2,
+                ]
+                assert (await next_message(two)).id.int == 1
+                assert readings.empty()  # channels are independent
+    finally:
+        await broadcaster.stop()
+
+
+async def test_a_malformed_alert_payload_is_dropped_with_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    conn = FakeConnection()
+    broadcaster = await started(Harness(conn))
+    try:
+        with broadcaster.subscribe_alerts() as queue, caplog.at_level(logging.WARNING):
+            conn.notify_alert("{broken")
+            conn.notify_alert(encode_alert(alert()))
+
+            assert (await next_message(queue)).id == UUID(int=1)
+            assert queue.empty()
+        assert "malformed" in caplog.text
+    finally:
+        await broadcaster.stop()
+
+
+async def test_a_slow_alert_subscriber_drops_its_oldest_alerts() -> None:
+    conn = FakeConnection()
+    broadcaster = await started(Harness(conn), queue_size=2)
+    try:
+        with broadcaster.subscribe_alerts() as slow, broadcaster.subscribe_alerts() as fast:
+            for n in (1, 2, 3, 4):
+                conn.notify_alert(encode_alert(alert(n)))
+                assert (await next_message(fast)).id.int == n
+
+            assert [slow.get_nowait().id.int for _ in range(slow.qsize())] == [3, 4]
+    finally:
+        await broadcaster.stop()
+
+
+async def test_leaving_the_alert_context_removes_the_subscription() -> None:
+    conn = FakeConnection()
+    broadcaster = await started(Harness(conn))
+    try:
+        with broadcaster.subscribe_alerts():
+            assert broadcaster.alert_subscriber_count() == 1
+        assert broadcaster.alert_subscriber_count() == 0
+
+        with pytest.raises(RuntimeError), broadcaster.subscribe_alerts():
+            raise RuntimeError("boom")
+        assert broadcaster.alert_subscriber_count() == 0
+    finally:
+        await broadcaster.stop()
+
+
+async def test_reconnect_resubscribes_both_channels() -> None:
+    first, second = FakeConnection(), FakeConnection()
+    broadcaster = await started(Harness(first, second))
+    try:
+        with broadcaster.subscribe_alerts() as queue:
+            first.drop()
+            await wait_until(lambda: ALERTS_CHANNEL in second.listeners)
+            second.notify_alert(encode_alert(alert(5)))
+
+            assert (await next_message(queue)).id.int == 5
+    finally:
+        await broadcaster.stop()

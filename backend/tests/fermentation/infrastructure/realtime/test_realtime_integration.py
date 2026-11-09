@@ -14,7 +14,7 @@ from fermon.fermentation.infrastructure.persistence import (
     reading_repository,
 )
 from fermon.fermentation.infrastructure.realtime import (
-    ReadingBroadcaster,
+    RealtimeBroadcaster,
     listen_dsn,
 )
 from fermon.fermentation.infrastructure.realtime.payload import READINGS_CHANNEL, encode_reading
@@ -26,9 +26,9 @@ READING = Reading("tank-1", "s1", MeasurementType.TEMPERATURE, 18.5, "celsius", 
 
 
 @pytest_asyncio.fixture
-async def broadcaster(engine: AsyncEngine) -> AsyncIterator[ReadingBroadcaster]:
+async def broadcaster(engine: AsyncEngine) -> AsyncIterator[RealtimeBroadcaster]:
     url = engine.url.render_as_string(hide_password=False)
-    broadcaster = ReadingBroadcaster(listen_dsn(url))
+    broadcaster = RealtimeBroadcaster(listen_dsn(url))
     await broadcaster.start()
     # NOTIFY is not buffered for absent listeners: wait until the LISTEN is in place.
     await asyncio.wait_for(broadcaster.ready.wait(), timeout=10)
@@ -37,7 +37,7 @@ async def broadcaster(engine: AsyncEngine) -> AsyncIterator[ReadingBroadcaster]:
 
 
 async def test_an_added_reading_reaches_a_real_listener(
-    repository: SqlAlchemyReadingRepository, broadcaster: ReadingBroadcaster
+    repository: SqlAlchemyReadingRepository, broadcaster: RealtimeBroadcaster
 ) -> None:
     with broadcaster.subscribe("tank-1") as queue:
         assert await repository.add(READING) is True
@@ -46,7 +46,7 @@ async def test_an_added_reading_reaches_a_real_listener(
 
 
 async def test_a_duplicate_add_notifies_nobody(
-    repository: SqlAlchemyReadingRepository, broadcaster: ReadingBroadcaster
+    repository: SqlAlchemyReadingRepository, broadcaster: RealtimeBroadcaster
 ) -> None:
     await repository.add(READING)
     with broadcaster.subscribe("tank-1") as queue:
@@ -69,7 +69,7 @@ _RAW_INSERT = text(
 
 
 async def test_postgres_delivers_a_notify_only_when_its_transaction_commits(
-    engine: AsyncEngine, broadcaster: ReadingBroadcaster
+    engine: AsyncEngine, broadcaster: RealtimeBroadcaster
 ) -> None:
     # Property of the database the design relies on, exercised on a separate connection:
     # the repository's NOTIFY rides in the inserting transaction, so it inherits this behavior.
@@ -86,7 +86,7 @@ async def test_postgres_delivers_a_notify_only_when_its_transaction_commits(
 
 
 async def test_postgres_never_delivers_a_notify_from_a_rolled_back_transaction(
-    engine: AsyncEngine, broadcaster: ReadingBroadcaster
+    engine: AsyncEngine, broadcaster: RealtimeBroadcaster
 ) -> None:
     with broadcaster.subscribe("tank-1") as queue:
         async with engine.connect() as conn:
@@ -127,7 +127,7 @@ async def test_repository_issues_its_notify_inside_the_insert_transaction(
 
 async def test_an_oversized_payload_skips_the_notify_but_still_stores_the_reading(
     repository: SqlAlchemyReadingRepository,
-    broadcaster: ReadingBroadcaster,
+    broadcaster: RealtimeBroadcaster,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -143,7 +143,7 @@ async def test_an_oversized_payload_skips_the_notify_but_still_stores_the_readin
 
 async def test_a_failing_notify_does_not_roll_back_the_reading(
     repository: SqlAlchemyReadingRepository,
-    broadcaster: ReadingBroadcaster,
+    broadcaster: RealtimeBroadcaster,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -161,7 +161,7 @@ async def test_a_failing_notify_does_not_roll_back_the_reading(
 
 
 async def test_notification_is_delivered_only_once_the_reading_is_committed(
-    repository: SqlAlchemyReadingRepository, broadcaster: ReadingBroadcaster
+    repository: SqlAlchemyReadingRepository, broadcaster: RealtimeBroadcaster
 ) -> None:
     with broadcaster.subscribe("tank-1") as queue:
         await repository.add(READING)

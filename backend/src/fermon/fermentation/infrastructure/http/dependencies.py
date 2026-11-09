@@ -19,13 +19,15 @@ from fermon.fermentation.application.ingest_reading import IngestReading
 from fermon.fermentation.application.list_aggregated_readings import ListAggregatedReadings
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
+from fermon.fermentation.application.manage_alerts import AcknowledgeAlert, GetAlert, ListAlerts
 from fermon.fermentation.domain import AlertRules
 from fermon.fermentation.infrastructure.persistence import (
+    SqlAlchemyAlertRepository,
     SqlAlchemyBatchRepository,
     SqlAlchemyReadingRepository,
     SqlAlchemyTankRepository,
 )
-from fermon.fermentation.infrastructure.realtime import ReadingFeed
+from fermon.fermentation.infrastructure.realtime import AlertFeed, ReadingFeed
 from fermon.fermentation.infrastructure.wiring import build_finish_batch, build_ingest_reading
 
 
@@ -36,6 +38,11 @@ def get_session_factory(connection: HTTPConnection) -> async_sessionmaker[AsyncS
 
 def get_reading_feed(connection: HTTPConnection) -> ReadingFeed:
     feed: ReadingFeed = connection.app.state.reading_feed
+    return feed
+
+
+def get_alert_feed(connection: HTTPConnection) -> AlertFeed:
+    feed: AlertFeed = connection.app.state.alert_feed
     return feed
 
 
@@ -63,6 +70,7 @@ def get_list_tanks(session_factory: SessionFactory) -> ListTanks:
         SqlAlchemyTankRepository(session_factory),
         SqlAlchemyReadingRepository(session_factory),
         SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyAlertRepository(session_factory),
     )
 
 
@@ -71,6 +79,7 @@ def get_get_tank(session_factory: SessionFactory) -> GetTank:
         SqlAlchemyTankRepository(session_factory),
         SqlAlchemyReadingRepository(session_factory),
         SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyAlertRepository(session_factory),
     )
 
 
@@ -113,6 +122,18 @@ def get_list_aggregated_readings(session_factory: SessionFactory) -> ListAggrega
     )
 
 
+def get_list_alerts(session_factory: SessionFactory) -> ListAlerts:
+    return ListAlerts(SqlAlchemyAlertRepository(session_factory))
+
+
+def get_get_alert(session_factory: SessionFactory) -> GetAlert:
+    return GetAlert(SqlAlchemyAlertRepository(session_factory))
+
+
+def get_acknowledge_alert(session_factory: SessionFactory, clock: ClockDep) -> AcknowledgeAlert:
+    return AcknowledgeAlert(SqlAlchemyAlertRepository(session_factory), clock)
+
+
 IngestReadingDep = Annotated[IngestReading, Depends(get_ingest_reading)]
 ListReadingsDep = Annotated[ListReadings, Depends(get_list_readings)]
 ListTanksDep = Annotated[ListTanks, Depends(get_list_tanks)]
@@ -125,3 +146,7 @@ StartBatchDep = Annotated[StartBatch, Depends(get_start_batch)]
 FinishBatchDep = Annotated[FinishBatch, Depends(get_finish_batch)]
 GetBatchDep = Annotated[GetBatch, Depends(get_get_batch)]
 ListBatchesDep = Annotated[ListBatches, Depends(get_list_batches)]
+ListAlertsDep = Annotated[ListAlerts, Depends(get_list_alerts)]
+GetAlertDep = Annotated[GetAlert, Depends(get_get_alert)]
+AcknowledgeAlertDep = Annotated[AcknowledgeAlert, Depends(get_acknowledge_alert)]
+AlertFeedDep = Annotated[AlertFeed, Depends(get_alert_feed)]

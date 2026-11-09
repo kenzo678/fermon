@@ -161,6 +161,7 @@ curl localhost:8000/tanks/tank-1
   "display_name": null,
   "first_seen_at": "2026-01-01T10:00:00Z",
   "active_batch": null,
+  "open_alerts": 0,
   "latest": {
     "temperature": {"tank_id": "tank-1", "sensor_id": "tank-1-temp", "measurement": "temperature",
                     "value": 19.5, "unit": "celsius", "recorded_at": "2026-01-01T12:05:00Z"},
@@ -171,7 +172,8 @@ curl localhost:8000/tanks/tank-1
 ```
 
 `latest.<medición>` es `null` si el tanque aún no reportó esa medición. `active_batch` es el resumen
-del lote activo del tanque (ver [Lotes](#lotes)) o `null`. Los errores usan la forma
+del lote activo del tanque (ver [Lotes](#lotes)) o `null`. `open_alerts` es la cantidad de alertas
+sin resolver (`open` + `acknowledged`) del tanque (ver [Alertas](#alertas)). Los errores usan la forma
 unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido, `422` para un
 `tank_id` en blanco). Todos los instantes se devuelven en UTC.
 
@@ -266,7 +268,37 @@ que el lote empezó (`started_at`). Todo el tiempo se mide sobre `recorded_at`, 
 | `ALERT_SILENT_CHECK_INTERVAL_SECONDS` | `60` | Cada cuánto el ingestor revisa sensores silenciosos |
 
 Todas deben ser mayores que 0. Con valores chicos (por ejemplo `20`, `10`, `30`, `5`) se ven alertas en
-segundos. Los endpoints de listado y reconocimiento llegan en la siguiente tarea.
+segundos.
+
+### API de alertas
+
+| Método y ruta | Descripción |
+| --- | --- |
+| `GET /alerts` | Lista de alertas, la más reciente primero (por `opened_at`) |
+| `GET /alerts/{id}` | Una alerta; `404` si no existe |
+| `POST /alerts/{id}/acknowledge` | `open` → `acknowledged`; cuerpo opcional `{"version": n}` |
+
+Filtros de `GET /alerts` (todos opcionales): `tank_id`, `batch_id`, `kind` (`out_of_range` o
+`silent_sensor`), `status` (repetible: `?status=open&status=resolved`) y `limit` (1 a 500, por defecto
+100). **Sin `status` solo se devuelven las alertas sin resolver** (`open` y `acknowledged`); para ver
+las resueltas hay que pedirlas con `status=resolved`.
+
+```json
+{
+  "id": "0b0c8f0e-...", "tank_id": "tank-1", "batch_id": "6f1d...",
+  "kind": "out_of_range", "measurement": "temperature", "status": "acknowledged",
+  "opened_at": "2026-01-01T12:05:00Z", "acknowledged_at": "2026-01-01T12:09:00Z",
+  "resolved_at": null,
+  "details": {"observed": 25.5, "bound": "above", "target_min": 18.0, "target_max": 21.0},
+  "version": 2
+}
+```
+
+- `acknowledged_at` se toma del reloj del servidor. Reconocer una alerta **ya reconocida** es
+  idempotente: responde `200` con la alerta tal cual, sin escribir ni subir la versión.
+- Errores con la forma unificada `{"detail": [{"field", "message"}]}`: `404` (`alert_id`) si la alerta
+  no existe; `409` (`status`) si ya está resuelta; `409` (`version`) si el `version` enviado ya no es el
+  vigente o si otra escritura se adelantó; `422` para filtros o cuerpo inválidos.
 
 ## Series agregadas
 
@@ -377,6 +409,34 @@ async def main():
             print(message)
 asyncio.run(main())"
 ```
+
+### Alertas en vivo: `/ws/alerts`
+
+`ws://localhost:8000/ws/alerts` envía **cada cambio de cualquier alerta** (de todos los tanques) como un
+mensaje de texto JSON `{"type": "alert", "alert": <AlertOut>}`, con la misma forma de `AlertOut` de
+`GET /alerts`. Llega un mensaje por revisión guardada: al abrirse, al reconocerse y al resolverse (así
+que `alert.status` indica qué pasó).
+
+```json
+{"type": "alert", "alert": {"id": "0b0c8f0e-...", "tank_id": "tank-1", "status": "open", "...": "..."}}
+```
+
+Funciona igual que el WebSocket de lecturas: el adaptador de persistencia ejecuta
+`pg_notify('fermon_alerts', <json>)` en la misma transacción de cada alta o actualización de alerta
+(se entrega recién al `COMMIT`, dentro de un `SAVEPOINT`; un error de `NOTIFY` o un payload de más de
+7500 bytes se registra y nunca hace fallar la escritura de la alerta). La API usa **la misma conexión de
+escucha** para `fermon_readings` y `fermon_alerts`, con la misma reconexión y comprobación de salud.
+
+| Código de cierre | Significado |
+| ---------------- | ----------- |
+| `1011` | Error interno: no se pudo suscribir al flujo de alertas. Se acepta y se cierra con el motivo `internal error`. |
+| `4403` | Origen no permitido: mismas reglas de `CORS_ORIGINS` que `/ws/tanks/{id}`. |
+
+- Mejor esfuerzo, sin repetición: las alertas que cambian mientras el cliente estaba desconectado, o
+  mientras la API había perdido su conexión de escucha, no se reenvían. Al (re)conectar hay que
+  completar con `GET /alerts`.
+- Cliente lento: cola acotada de 100 mensajes por suscriptor; si se llena se descarta el más antiguo.
+- Los mensajes que envía el cliente se ignoran.
 
 ## Frontend
 

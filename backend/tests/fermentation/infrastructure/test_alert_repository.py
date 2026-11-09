@@ -1,9 +1,13 @@
+import asyncio
+import logging
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 import pytest
-from sqlalchemy import text
+import pytest_asyncio
+from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -23,6 +27,10 @@ from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyBatchRepository,
     SqlAlchemyTankRepository,
 )
+from fermon.fermentation.infrastructure.persistence import (
+    alert_repository as alert_repository_module,
+)
+from fermon.fermentation.infrastructure.realtime import RealtimeBroadcaster, listen_dsn
 
 pytestmark = pytest.mark.integration
 
@@ -173,11 +181,11 @@ async def test_list_filters_and_orders_newest_first(
 
     assert await ids() == [d.id, c.id, b.id, a.id]
     assert await ids(tank_id="tank-1") == [d.id, b.id, a.id]
-    assert await ids(status=AlertStatus.ACKNOWLEDGED) == [a.id]
+    assert await ids(statuses=[AlertStatus.ACKNOWLEDGED]) == [a.id]
     assert await ids(kind=AlertKind.SILENT_SENSOR) == [b.id]
-    assert await ids(tank_id="tank-1", status=AlertStatus.OPEN, kind=AlertKind.OUT_OF_RANGE) == [
-        d.id
-    ]
+    assert await ids(
+        tank_id="tank-1", statuses=[AlertStatus.OPEN], kind=AlertKind.OUT_OF_RANGE
+    ) == [d.id]
 
 
 async def test_get_unresolved_matches_tank_kind_and_measurement(
@@ -240,3 +248,137 @@ async def test_list_filters_by_batch(
 
     assert [a.id for a in await alert_repository.list(batch_id=UUID(int=2))] == [theirs.id]
     assert [a.id for a in await alert_repository.list(batch_id=UUID(int=1))] == [mine.id]
+
+
+async def test_list_filters_by_several_statuses_and_limits_to_the_newest(
+    alert_repository: SqlAlchemyAlertRepository,
+) -> None:
+    a, b, c = make_alert(1), make_silent(2), make_alert(3, "tank-2")
+    for alert in (a, b, c):
+        await alert_repository.add(alert)
+    await alert_repository.update(a.acknowledge(T0 + timedelta(hours=1)))
+    await alert_repository.update(c.resolve(T0 + timedelta(hours=1)))
+    unresolved = [AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED]
+
+    async def ids(**filters: Any) -> list[UUID]:
+        return [x.id for x in await alert_repository.list(**filters)]
+
+    assert await ids(statuses=unresolved) == [b.id, a.id]
+    assert await ids(statuses=[AlertStatus.RESOLVED, AlertStatus.OPEN]) == [c.id, b.id]
+    assert await ids(limit=2) == [c.id, b.id]
+    assert await ids(statuses=unresolved, limit=1) == [b.id]
+
+
+async def test_count_unresolved_groups_all_tanks_in_one_query(
+    alert_repository: SqlAlchemyAlertRepository, engine: AsyncEngine
+) -> None:
+    a, b, c = make_alert(1), make_silent(2), make_alert(3, "tank-2")
+    for alert in (a, b, c):
+        await alert_repository.add(alert)
+    await alert_repository.update(a.acknowledge(T0 + timedelta(hours=1)))  # still unresolved
+    await alert_repository.update(c.resolve(T0 + timedelta(hours=1)))  # no longer counted
+    statements: list[str] = []
+
+    def on_statement(_conn: object, _cur: object, statement: str, *_args: object) -> None:
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", on_statement)
+    try:
+        counts = await alert_repository.count_unresolved(["tank-1", "tank-2", "tank-3"])
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", on_statement)
+
+    assert counts == {"tank-1": 2}
+    assert len(statements) == 1
+    assert await alert_repository.count_unresolved([]) == {}
+
+
+# --- realtime: every alert write queues one NOTIFY in its own transaction ---------------------
+
+
+@pytest_asyncio.fixture
+async def broadcaster(engine: AsyncEngine) -> AsyncIterator[RealtimeBroadcaster]:
+    url = engine.url.render_as_string(hide_password=False)
+    broadcaster = RealtimeBroadcaster(listen_dsn(url))
+    await broadcaster.start()
+    await asyncio.wait_for(broadcaster.ready.wait(), timeout=10)
+    yield broadcaster
+    await broadcaster.stop()
+
+
+async def test_add_acknowledge_and_resolve_each_notify_once_after_commit(
+    alert_repository: SqlAlchemyAlertRepository, broadcaster: RealtimeBroadcaster
+) -> None:
+    opened = make_alert(1)
+    acknowledged = opened.acknowledge(T0 + timedelta(minutes=5))
+    resolved = acknowledged.resolve(T0 + timedelta(minutes=9))
+    with broadcaster.subscribe_alerts() as queue:
+        assert await alert_repository.add(opened) is True
+        await alert_repository.update(acknowledged)
+        await alert_repository.update(resolved)
+
+        heard = [await asyncio.wait_for(queue.get(), timeout=5) for _ in range(3)]
+        await asyncio.sleep(0.3)
+        assert queue.empty()  # exactly one per write
+
+    assert heard == [opened, acknowledged, resolved]
+    # the row each notification describes was already committed and visible when it was heard
+    assert await alert_repository.get(opened.id) == resolved
+
+
+async def test_a_duplicate_add_and_a_stale_update_notify_nobody(
+    alert_repository: SqlAlchemyAlertRepository, broadcaster: RealtimeBroadcaster
+) -> None:
+    first = make_alert(1)
+    await alert_repository.add(first)
+    marker = make_alert(2, "tank-2")
+    with broadcaster.subscribe_alerts() as queue:
+        assert await alert_repository.add(make_alert(5)) is False  # same unresolved key
+        with pytest.raises(ConcurrentAlertUpdateError):
+            await alert_repository.update(make_alert(9).acknowledge(T0 + timedelta(minutes=9)))
+        await alert_repository.add(marker)
+
+        assert await asyncio.wait_for(queue.get(), timeout=5) == marker
+        await asyncio.sleep(0.3)
+        assert queue.empty()
+
+
+async def test_an_oversized_payload_skips_the_notify_but_stores_the_alert(
+    alert_repository: SqlAlchemyAlertRepository,
+    broadcaster: RealtimeBroadcaster,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(alert_repository_module, "MAX_NOTIFY_PAYLOAD_BYTES", 10)
+    alert = make_alert(1)
+    with broadcaster.subscribe_alerts() as queue, caplog.at_level(logging.WARNING):
+        assert await alert_repository.add(alert) is True
+        await alert_repository.update(alert.acknowledge(T0 + timedelta(minutes=5)))
+
+        await asyncio.sleep(0.5)
+        assert queue.empty()
+    assert "payload" in caplog.text
+    stored = await alert_repository.get(alert.id)
+    assert stored is not None and stored.status is AlertStatus.ACKNOWLEDGED
+
+
+async def test_a_failing_notify_never_fails_the_alert_write(
+    alert_repository: SqlAlchemyAlertRepository,
+    broadcaster: RealtimeBroadcaster,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # An empty channel name makes PostgreSQL itself reject pg_notify: a genuine NOTIFY error.
+    monkeypatch.setattr(
+        alert_repository_module, "_notify_statement", lambda _p: select(func.pg_notify("", "x"))
+    )
+    alert = make_alert(1)
+    with broadcaster.subscribe_alerts() as queue, caplog.at_level(logging.WARNING):
+        assert await alert_repository.add(alert) is True
+        await alert_repository.update(alert.acknowledge(T0 + timedelta(minutes=5)))
+
+        await asyncio.sleep(0.5)
+        assert queue.empty()
+    assert "notify" in caplog.text.lower()
+    stored = await alert_repository.get(alert.id)
+    assert stored is not None and stored.status is AlertStatus.ACKNOWLEDGED and stored.version == 2

@@ -28,6 +28,7 @@ from fermon.fermentation.domain import (
     TargetRanges,
 )
 from tests.fermentation.fakes import (
+    InMemoryAlertRepository,
     InMemoryBatchRepository,
     InMemoryReadingRepository,
     InMemoryTankRepository,
@@ -372,8 +373,8 @@ async def test_tank_overviews_include_the_active_batch() -> None:
     await w.create.execute(command(beer_name="Waiting"))
     await w.start.execute(batch.id)
 
-    overviews = await ListTanks(w.tanks, w.readings, w.batches).execute()
-    one = await GetTank(w.tanks, w.readings, w.batches).execute("tank-1")
+    overviews = await ListTanks(w.tanks, w.readings, w.batches, InMemoryAlertRepository()).execute()
+    one = await GetTank(w.tanks, w.readings, w.batches, InMemoryAlertRepository()).execute("tank-1")
 
     assert [o.active_batch for o in overviews] == [(await w.batches.get(batch.id)), None]
     assert one.active_batch is not None and one.active_batch.id == batch.id

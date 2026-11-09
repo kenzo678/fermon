@@ -29,6 +29,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
 )
 from fermon.main import create_app
 from tests.fermentation.fakes import (
+    InMemoryAlertRepository,
     InMemoryBatchRepository,
     InMemoryReadingRepository,
     InMemoryTankRepository,
@@ -76,8 +77,10 @@ async def client() -> AsyncIterator[AsyncClient]:
     overrides[get_finish_batch] = lambda: FinishBatch(batches, clock)
     overrides[get_get_batch] = lambda: GetBatch(batches)
     overrides[get_list_batches] = lambda: ListBatches(batches)
-    overrides[get_list_tanks] = lambda: ListTanks(tanks, readings, batches)
-    overrides[get_get_tank] = lambda: GetTank(tanks, readings, batches)
+    overrides[get_list_tanks] = lambda: ListTanks(
+        tanks, readings, batches, InMemoryAlertRepository()
+    )
+    overrides[get_get_tank] = lambda: GetTank(tanks, readings, batches, InMemoryAlertRepository())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         client.clock = now  # type: ignore[attr-defined]
         yield client

@@ -6,6 +6,7 @@ from fermon.fermentation.domain.aggregation import (
 )
 from fermon.fermentation.domain.alert import (
     ALERTABLE_MEASUREMENTS,
+    UNRESOLVED_STATUSES,
     Alert,
     AlertKind,
     AlertStatus,
@@ -28,6 +29,7 @@ from fermon.fermentation.domain.batch import (
 )
 from fermon.fermentation.domain.errors import (
     ActiveBatchConflictError,
+    AlertNotFoundError,
     BatchNotFoundError,
     ConcurrentAlertUpdateError,
     ConcurrentBatchUpdateError,
@@ -56,6 +58,8 @@ __all__ = [
     "AlertKind",
     "AlertRules",
     "AlertStatus",
+    "AlertNotFoundError",
+    "UNRESOLVED_STATUSES",
     "Bound",
     "ConcurrentAlertUpdateError",
     "InvalidAlertError",

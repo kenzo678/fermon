@@ -122,9 +122,14 @@ recorded before the alert opened (backlog after an outage), the alert MUST still
 MUST NOT add a `resolution`. A reading equal to or older than `last_reading_at` MUST NOT resolve the alert.
 
 #### Scenario: Normal recovery
-- GIVEN an open silent alert
-- WHEN a reading newer than the alert's opening arrives
-- THEN the alert resolves without a `resolution` detail
+- GIVEN an open silent alert opened at 12:20 with `last_reading_at` 12:00
+- WHEN a reading recorded at 12:25 arrives (newer than both `last_reading_at` and `opened_at`)
+- THEN the alert resolves at 12:25 without a `resolution` detail
+
+#### Scenario: Reading not newer than the evidence
+- GIVEN an open silent alert with `last_reading_at` 12:00
+- WHEN a reading recorded at 12:00 (or earlier) arrives
+- THEN the alert stays open
 
 #### Scenario: Backlog reading
 - GIVEN an open silent alert opened at 12:20 with `last_reading_at` 12:00

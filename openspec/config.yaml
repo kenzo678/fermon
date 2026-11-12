@@ -1,0 +1,68 @@
+schema: spec-driven
+
+context: |
+  Project: Fermon - fermentation tank monitoring (temperature, pressure, alcohol) for a thesis project.
+  Tech stack:
+    - Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.x async + asyncpg, Alembic,
+      TimescaleDB (PostgreSQL 16), Mosquitto (MQTT), aiomqtt. Tooling: uv, ruff, mypy, pytest.
+    - Ingestor: separate process (`python -m fermon.ingestor`) MQTT -> IngestReading -> database.
+    - Simulator: separate Python project (`simulator/`, env prefix SIM_) publishing sensor readings.
+    - Frontend: React 19 + TypeScript + Vite, TanStack Query, react-router, Apache ECharts, Tailwind CSS
+      (mobile-first); served by Vite in dev and nginx in prod.
+    - Tests: pytest (backend, simulator); Vitest + Testing Library + MSW (frontend); Playwright e2e.
+    - Everything runs in Docker Compose; nothing needs to be installed on the host.
+  Architecture:
+    - Backend: hexagonal + screaming architecture
+      (`src/fermon/fermentation/{domain,application,infrastructure}`); the domain is pure.
+    - Frontend: screaming architecture by feature (`src/features/*`, `src/shared`) plus
+      container/presentational components.
+  Style: code, identifiers, comments and UI copy in English; planning docs (odd/, plans) in Spanish.
+  Source of truth for history: `odd/tasks/*.md` (decisions, evidence, future work) and Engram memory.
+  The specs under `openspec/specs/` are a baseline describing behavior that is already built and merged.
+
+rules:
+  proposal:
+    - Include a rollback plan for risky changes.
+    - Planning prose may be Spanish; keep identifiers and code English.
+    - Keep each change small enough to be reviewed as one work unit (about 400 authored changed lines is a planning heuristic, not a hard cap).
+  specs:
+    - Use Given/When/Then for scenarios.
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY).
+    - Requirement and scenario text in English; a short Spanish summary line per spec is optional.
+    - Every requirement must be true of the current code; verify against source before writing it.
+  design:
+    - Keep the domain pure (no framework imports); adapters live in infrastructure.
+    - Document architecture decisions with rationale and the alternatives considered.
+    - Frontend containers fetch and wire; presentational components stay pure and testable.
+  tasks:
+    - Group by phase, use hierarchical numbering.
+    - Keep tasks completable in one session.
+    - Every task closes with a Conventional Commit; tests and docs travel with the behavior.
+  apply:
+    guidelines:
+      - Follow existing code patterns (hexagonal layers, container/presentational).
+      - Code, comments and UI copy in English.
+      - One commit per finished, reviewed functionality; squash before push.
+      - Lockfiles (uv.lock, package-lock.json) go in their own commit.
+      - Conventional Commits without AI attribution.
+      - Pull requests should stay reviewable; slice with chained PRs when a feature exceeds about 400 lines.
+    tdd: true
+    test_command: "docker compose run --rm api uv run pytest"
+    test_commands:
+      backend: "docker compose run --rm api uv run pytest"
+      backend_unit: "docker compose run --rm --no-deps api uv run pytest -m 'not integration'"
+      frontend: "docker compose run --rm --no-deps frontend npm test"
+      simulator: "docker compose --profile simulator run --rm simulator uv run pytest"
+      e2e: "docker compose run --rm e2e"
+  verify:
+    test_command: "docker compose run --rm api uv run pytest"
+    build_command: "docker compose run --rm --no-deps frontend npm run build"
+    lint_commands:
+      - "docker compose run --rm api uv run ruff check ."
+      - "docker compose run --rm api uv run ruff format --check ."
+      - "docker compose run --rm api uv run mypy src"
+      - "docker compose run --rm --no-deps frontend npm run lint"
+      - "docker compose run --rm --no-deps frontend npm run typecheck"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas.

@@ -35,12 +35,16 @@ export function BatchDetailPage() {
   const batch = useBatchQuery(batchId);
   const tanks = useTanksQuery();
   const templates = useBatchTemplatesQuery();
-  const update = useUpdateBatch(batchId);
-  const start = useStartBatch(batchId);
-  const finish = useFinishBatch(batchId);
-  const [confirmingFinish, setConfirmingFinish] = useState(false);
   // The server copy the form was last (re)started from, and whether the user has unsaved edits on it.
   const [adopted, setAdopted] = useState<Batch | null>(null);
+  // This page's own successful changes: the returned copy is the new truth. It is adopted by the
+  // mutation hooks synchronously, in the same render as the cache write, so the bumped version
+  // is never seen as an external change while lists and tanks are still refetching.
+  const adoptOwn = (saved: Batch) => setAdopted(saved);
+  const update = useUpdateBatch(batchId, adoptOwn);
+  const start = useStartBatch(batchId, adoptOwn);
+  const finish = useFinishBatch(batchId, adoptOwn);
+  const [confirmingFinish, setConfirmingFinish] = useState(false);
   const [dirty, setDirty] = useState(false);
   if (adopted === null && batch.data !== undefined) setAdopted(batch.data);
   const resetUpdate = update.reset;
@@ -54,8 +58,6 @@ export function BatchDetailPage() {
     resetUpdate();
   }, [adopted, resetUpdate]);
 
-  // This page's own successful changes: the returned copy is the new truth.
-  const adoptOwn = (saved: Batch) => setAdopted(saved);
   const formErrors = useMemo(
     () => (update.error === null ? null : mapServerErrors(update.error)),
     [update.error],
@@ -106,7 +108,7 @@ export function BatchDetailPage() {
           <button
             type="button"
             disabled={start.isPending}
-            onClick={() => start.mutate(undefined, { onSuccess: adoptOwn })}
+            onClick={() => start.mutate(undefined)}
             className={`${buttonClass} bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:ring-emerald-500`}
           >
             Start batch
@@ -120,7 +122,7 @@ export function BatchDetailPage() {
                 <button
                   type="button"
                   disabled={finish.isPending}
-                  onClick={() => finish.mutate(undefined, { onSuccess: adoptOwn, onSettled: () => setConfirmingFinish(false) })}
+                  onClick={() => finish.mutate(undefined, { onSettled: () => setConfirmingFinish(false) })}
                   className={`${buttonClass} bg-red-700 text-white hover:bg-red-800 focus-visible:ring-red-500`}
                 >
                   Yes, finish batch
@@ -188,7 +190,7 @@ export function BatchDetailPage() {
               </button>
             ) : undefined
           }
-          onSubmit={(values) => update.mutate(toPatchBody(values, adopted.version), { onSuccess: adoptOwn })}
+          onSubmit={(values) => update.mutate(toPatchBody(values, adopted.version))}
         />
       ) : (
         <div role="status" aria-label="Loading form" className="h-64 animate-pulse rounded-lg bg-slate-200" />

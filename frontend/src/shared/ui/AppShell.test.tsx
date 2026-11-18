@@ -3,10 +3,10 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { AppShell } from "./AppShell";
 
-function renderShell(children: React.ReactNode, route = "/") {
+function renderShell(children: React.ReactNode, route = "/", navBadges?: Record<string, React.ReactNode>) {
   return render(
     <MemoryRouter initialEntries={[route]}>
-      <AppShell>{children}</AppShell>
+      <AppShell navBadges={navBadges}>{children}</AppShell>
     </MemoryRouter>,
   );
 }
@@ -35,5 +35,17 @@ describe("AppShell", () => {
     renderShell("content", "/batches/new");
     expect(screen.getByRole("link", { name: "Batches" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Tanks" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("links to the alerts page", () => {
+    renderShell("content", "/alerts");
+    expect(screen.getByRole("link", { name: "Alerts" })).toHaveAttribute("href", "/alerts");
+    expect(screen.getByRole("link", { name: "Alerts" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("renders a badge next to the matching nav link", () => {
+    renderShell("content", "/", { "/alerts": <span>3</span> });
+    expect(screen.getByRole("link", { name: "Alerts 3" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Tanks" })).toBeInTheDocument();
   });
 });

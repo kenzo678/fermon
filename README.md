@@ -483,6 +483,22 @@ se invalidan los lotes y los tanques, de modo que la tarjeta y el detalle del ta
 lote activo (o "No active batch" / "Start a batch") y los gráficos sombrean el rango objetivo de
 temperatura y presión (`markArea`).
 
+### Alertas en la UI
+
+El encabezado suma el enlace "Alerts" con un contador de alertas sin resolver. La fuente de verdad
+del contador es la suma de `open_alerts` de `GET /tanks` (la misma consulta de la vista general, sin
+tope de paginación y coherente con las tarjetas). Una tarjeta con `open_alerts > 0` muestra un
+indicador que enlaza a `/alerts?tank=<id>`, y el detalle del tanque lista sus alertas activas.
+
+`/alerts` (carga bajo demanda): filtros de estado (Open / Acknowledged / Resolved, multiselección;
+por defecto Open + Acknowledged, siempre queda al menos uno), tanque (`?tank=`) y tipo (`?kind=`),
+las más nuevas primero. "Acknowledge" envía la `version` vista: un 409 por `status` muestra "already
+resolved" y un 409 por `version` refresca la lista y pide reintentar. Un único WebSocket
+`/ws/alerts`, montado una sola vez en el shell, inserta/reemplaza cada revisión en las listas en
+caché (según los filtros de cada una, ignorando versiones más antiguas); como `open_alerts` solo
+cambia cuando una alerta se abre o se resuelve, esos eventos (no los reconocimientos) vuelven a pedir
+los tanques, agrupados en 250 ms. En cada reconexión se invalidan las listas de alertas y los tanques.
+
 ### Pruebas e2e (Playwright)
 
 Corren contra el stack real con el simulador publicando, en Chromium de escritorio y en un

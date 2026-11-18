@@ -50,7 +50,7 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   tiempo real por WebSocket. PR del backend.
 - [x] T3 — UI de lotes: formulario (con plantillas), estados, lote activo en la tarjeta y en el
   detalle, bandas de rango objetivo en los gráficos.
-- [ ] T4 — UI de alertas: contador, página con filtros, "Reconocer", indicador en la tarjeta, aviso
+- [x] T4 — UI de alertas: contador, página con filtros, "Reconocer", indicador en la tarjeta, aviso
   en vivo.
 - [ ] T5 — e2e de lotes y alertas (con el simulador forzando una desviación); PR del frontend.
 
@@ -193,5 +193,36 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   RED: 6 failed; 4 de caracterización declarados. GREEN 205 passed; lint y typecheck limpios
   (verificado por el orquestador).
 
+- Revisión RDD del T3 final (`465ae31`, 2443 líneas): aprobada por el usuario, **aprobada** y
+  reconocida. Sus hallazgos se corrigen dentro del commit de T4 (T3 ya subido, sin force push):
+  WARNING aviso falso de "cambiado en otro lado" tras el propio guardado (`onWrite` adopta la copia en
+  el mismo render que la escritura en cache; RED: el aviso aparecía con `GET /tanks` demorado) y
+  SUGGESTION fecha no parseable (validación "Enter a valid date and time"; `fromLocalInput` nunca
+  lanza; RED `RangeError: Invalid time value`).
+- T4 completada (ruta delegada, un escritor). Tipos `Alert`/`AlertEvent`; `features/alerts`:
+  `alertKeys`, `useAlertsQuery`, `useAcknowledgeAlert` (envía `version`; 409 `status` "already
+  resolved", 409 `version` refresca), `applyAlert` + `matchesFilters` (inserta, reemplaza, quita al
+  resolverse, ignora versiones viejas), `useLiveAlerts` montado una vez en `LiveAlertsProvider`
+  (relleno al reabrir, refetch de tanques con debounce solo en open/resolve), página diferida
+  `/alerts` con filtros en la URL, `ActiveAlerts` en el detalle del tanque, indicador en `TankCard`,
+  contador en la navegación = suma de `open_alerts` de `GET /tanks`. Evidencia TDD: RED de import en
+  cada módulo y fallos de integración (AppShell 2, TankCard 1, TankDetailPage 1, AppRoutes 3); GREEN
+  274 passed con las correcciones de T3; lint, typecheck y build limpios (verificado por el
+  orquestador). Smoke contra la API real: `open` v1 → `acknowledged` v2 → `resolved` v3
+  (`batch_finished`) por `/ws/alerts`; `open_alerts` 1 → 0. Sin verificación visual (T5).
+
+- Revisión RDD de T4 (`d17c9ba`, 1798 líneas): aprobada por el usuario, **aprobada** y reconocida.
+  WARNING `R3-ws-guard-details` corregido inline con TDD por el orquestador: `parseAlertEvent`
+  (exportado) rechaza eventos sin `details` objeto o con `acknowledged_at`/`resolved_at` que no sean
+  null o fecha válida, así un mensaje malformado nunca rompe el render. RED: 5 failed; GREEN 279
+  passed; lint y typecheck limpios.
+
+## Trabajo futuro (frontend)
+- SUGGESTION `R3-reconnect-overwrite`: al reconectar, el refetch de listas puede pisar por un momento
+  un evento en vivo más nuevo (sin guardia de versión) hasta el próximo evento o refetch. Aceptado
+  por ahora: el estado converge solo.
+- SUGGESTION `R3-busy-wait-test`: el test del aviso falso usa una espera real de 700 ms; reemplazarlo
+  por uno que espere la request demorada.
+
 ## Próximo paso
-T4 — UI de alertas.
+T5 (e2e de lotes y alertas) y PR del frontend.

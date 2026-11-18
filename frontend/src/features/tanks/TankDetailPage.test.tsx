@@ -2,11 +2,11 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Route, Routes, useLocation } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API_URL } from "../../shared/api";
 import type { AggregatedPoint, AggregatedReadings } from "../../shared/api";
 import { createFakeSocketHub } from "../../test/fakeSocket";
-import { makeTank } from "../../test/fixtures";
+import { makeAlert, makeTank } from "../../test/fixtures";
 import { renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
 
@@ -70,6 +70,11 @@ function averageOf(chart: HTMLElement | undefined): number | undefined {
 }
 
 describe("TankDetailPage", () => {
+  // The page also lists the tank's active alerts; most tests do not care about them.
+  beforeEach(() => {
+    server.use(http.get(`${API_URL}/alerts`, () => HttpResponse.json([])));
+  });
+
   it("shows the tank header and one chart per measurement with its series", async () => {
     useHappyPath();
     renderWithProviders(<Page />, { route: "/tanks/tank-1" });
@@ -271,6 +276,17 @@ describe("TankDetailPage", () => {
         "/batches/new?tank=tank-1",
       );
       expect(charts.map(bandOf)).toEqual([undefined, undefined, undefined]);
+    });
+  });
+
+  describe("active alerts", () => {
+    it("lists the unresolved alerts of this tank", async () => {
+      useHappyPath();
+      server.use(http.get(`${API_URL}/alerts`, () => HttpResponse.json([makeAlert()])));
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const section = await screen.findByRole("region", { name: "Active alerts" });
+      expect(await within(section).findByText(/Temperature below target/)).toBeInTheDocument();
+      expect(within(section).getByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
     });
   });
 });

@@ -80,10 +80,13 @@ export function toLocalInput(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Local datetime-local value -> UTC ISO string. */
-export function fromLocalInput(local: string): string {
-  return new Date(local).toISOString();
+/** Local datetime-local value -> UTC ISO string, or null when it cannot be parsed. */
+export function fromLocalInput(local: string): string | null {
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
+
+const isParseable = (local: string) => fromLocalInput(local) !== null;
 
 const text = (value: number | null) => (value === null ? "" : String(value));
 
@@ -140,6 +143,9 @@ export function validate(values: FormValues): FormErrors {
   required("beer_name");
   required("style");
   required("planned_start");
+  const INVALID_DATE = "Enter a valid date and time";
+  if (errors.planned_start === undefined && !isParseable(values.planned_start)) errors.planned_start = INVALID_DATE;
+  if (values.expected_end.trim() !== "" && !isParseable(values.expected_end)) errors.expected_end = INVALID_DATE;
 
   const numbers = {} as Record<TargetField, number | null>;
   for (const field of TARGET_FIELDS) {
@@ -162,6 +168,8 @@ export function validate(values: FormValues): FormErrors {
     errors.pressure_min = "Must be lower than the maximum pressure";
   }
   if (
+    errors.expected_end === undefined &&
+    errors.planned_start === undefined &&
     values.expected_end !== "" &&
     values.planned_start !== "" &&
     Date.parse(values.expected_end) <= Date.parse(values.planned_start)
@@ -199,9 +207,11 @@ export function toCreateBody(values: FormValues): CreateBatchBody {
     style: values.style.trim(),
     template: values.template as BatchTemplateName,
     targets: targetsBody(values, false),
-    planned_start: fromLocalInput(values.planned_start),
+    // validate() runs first; an unparseable value is sent as-is so the server rejects it rather than a throw.
+    planned_start: fromLocalInput(values.planned_start) ?? values.planned_start,
   };
-  if (values.expected_end !== "") body.expected_end = fromLocalInput(values.expected_end);
+  const expectedEnd = fromLocalInput(values.expected_end);
+  if (values.expected_end !== "") body.expected_end = expectedEnd ?? values.expected_end;
   if (values.notes.trim() !== "") body.notes = values.notes.trim();
   return body;
 }

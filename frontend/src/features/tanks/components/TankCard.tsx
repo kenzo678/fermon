@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import type { Tank } from "../../../shared/api";
+import { AlertBadge } from "../../alerts/components/AlertBadge";
 import {
   formatDateTime,
   formatReading,
@@ -42,6 +43,18 @@ export function TankCard({ tank }: TankCardProps) {
         </p>
       ) : (
         <p className="text-sm text-slate-500">No active batch</p>
+      )}
+      {tank.open_alerts > 0 && (
+        <p className="text-sm">
+          {/* Above the stretched card link so the alerts of this tank stay one click away. */}
+          <Link
+            to={`/alerts?tank=${encodeURIComponent(tank.id)}`}
+            className="relative z-10 inline-flex items-center gap-1.5 font-medium text-red-800 underline"
+          >
+            <AlertBadge count={tank.open_alerts} />
+            <span aria-hidden="true">{tank.open_alerts === 1 ? "alert" : "alerts"}</span>
+          </Link>
+        </p>
       )}
       <dl className="grid grid-cols-3 gap-2">
         {MEASUREMENT_ORDER.map((measurement) => (

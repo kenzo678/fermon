@@ -3,18 +3,21 @@ import { Link, useLocation } from "react-router";
 
 interface AppShellProps {
   children: ReactNode;
+  /** Extra content shown inside a nav link, keyed by its `to` (e.g. a live counter). */
+  navBadges?: Partial<Record<string, ReactNode>>;
 }
 
 const NAV = [
   { to: "/", label: "Tanks", sections: ["/tanks"] },
   { to: "/batches", label: "Batches", sections: ["/batches"] },
+  { to: "/alerts", label: "Alerts", sections: ["/alerts"] },
 ];
 
 function isCurrent(pathname: string, to: string, sections: string[]): boolean {
   return pathname === to || sections.some((s) => pathname === s || pathname.startsWith(`${s}/`));
 }
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, navBadges = {} }: AppShellProps) {
   const { pathname } = useLocation();
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -29,11 +32,13 @@ export function AppShell({ children }: AppShellProps) {
                   key={to}
                   to={to}
                   aria-current={current ? "page" : undefined}
-                  className={`rounded px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${
+                  className={`inline-flex items-center gap-1.5 rounded px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${
                     current ? "font-semibold text-slate-900 underline" : "text-slate-600 hover:text-slate-900"
                   }`}
                 >
                   {label}
+                  {navBadges[to] !== undefined && " "}
+                  {navBadges[to]}
                 </Link>
               );
             })}

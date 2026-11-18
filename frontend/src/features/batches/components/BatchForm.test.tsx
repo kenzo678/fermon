@@ -83,6 +83,28 @@ describe("BatchForm", () => {
     expect(tank).toHaveAccessibleDescription("Choose a tank");
   });
 
+  it("blocks submit with a message when the planned start is unparseable (create)", async () => {
+    const user = userEvent.setup();
+    const onSubmit = setup({ initialValues: emptyValues("garbage") });
+    await fillRequired(user);
+    await user.selectOptions(screen.getByLabelText("Template"), "ale");
+    await user.click(screen.getByRole("button", { name: "Create batch" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Planned start")).toHaveAccessibleDescription("Enter a valid date and time");
+  });
+
+  it("blocks submit with a message when a date is unparseable (edit)", async () => {
+    const user = userEvent.setup();
+    const onSubmit = setup({
+      mode: "edit",
+      submitLabel: "Save changes",
+      initialValues: { ...valuesFromBatch(makeBatch()), expected_end: "garbage" },
+    });
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Expected end")).toHaveAccessibleDescription("Enter a valid date and time");
+  });
+
   it("submits the values once valid", async () => {
     const user = userEvent.setup();
     const onSubmit = setup();

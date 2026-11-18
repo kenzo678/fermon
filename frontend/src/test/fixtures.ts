@@ -1,4 +1,4 @@
-import type { Batch, Measurement, Reading, Tank } from "../shared/api";
+import type { Alert, Batch, Measurement, Reading, Tank } from "../shared/api";
 
 const UNITS: Record<Measurement, string> = {
   temperature: "celsius",
@@ -59,6 +59,23 @@ export function makeBatch(overrides: Partial<Batch> = {}): Batch {
     finished_at: null,
     notes: null,
     created_at: "2026-02-28T10:00:00Z",
+    version: 1,
+    ...overrides,
+  };
+}
+
+export function makeAlert(overrides: Partial<Alert> = {}): Alert {
+  return {
+    id: "a1",
+    tank_id: "tank-1",
+    batch_id: "b1",
+    kind: "out_of_range",
+    measurement: "temperature",
+    status: "open",
+    opened_at: "2026-03-01T12:00:00Z",
+    acknowledged_at: null,
+    resolved_at: null,
+    details: { bound: "below", observed: 19.1, target_min: 30, target_max: 35 },
     version: 1,
     ...overrides,
   };

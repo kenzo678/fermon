@@ -39,13 +39,19 @@ export function useBatchTemplatesQuery() {
 
 /**
  * A batch change can alter a tank's active batch, so lists, details and the tank queries refresh
- * together. The returned batch seeds its own detail cache so the UI updates before the refetch.
+ * together. The returned batch seeds its own detail cache so the UI updates before the refetch;
+ * `onWrite` runs synchronously right before that seeding so a caller can recognize its own write
+ * in the same render, never mistaking the bumped version for an external change.
  */
-function useBatchMutation<Variables>(mutationFn: (variables: Variables) => Promise<Batch>) {
+function useBatchMutation<Variables>(
+  mutationFn: (variables: Variables) => Promise<Batch>,
+  onWrite?: (batch: Batch) => void,
+) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
     onSuccess: async (batch) => {
+      onWrite?.(batch);
       queryClient.setQueryData(batchKeys.detail(batch.id), batch);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: batchKeys.lists() }),
@@ -57,9 +63,11 @@ function useBatchMutation<Variables>(mutationFn: (variables: Variables) => Promi
 
 export const useCreateBatch = () => useBatchMutation((body: CreateBatchBody) => createBatch(body));
 
-export const useUpdateBatch = (batchId: string) =>
-  useBatchMutation((body: PatchBatchBody) => updateBatch(batchId, body));
+export const useUpdateBatch = (batchId: string, onWrite?: (batch: Batch) => void) =>
+  useBatchMutation((body: PatchBatchBody) => updateBatch(batchId, body), onWrite);
 
-export const useStartBatch = (batchId: string) => useBatchMutation(() => startBatch(batchId));
+export const useStartBatch = (batchId: string, onWrite?: (batch: Batch) => void) =>
+  useBatchMutation(() => startBatch(batchId), onWrite);
 
-export const useFinishBatch = (batchId: string) => useBatchMutation(() => finishBatch(batchId));
+export const useFinishBatch = (batchId: string, onWrite?: (batch: Batch) => void) =>
+  useBatchMutation(() => finishBatch(batchId), onWrite);

@@ -10,6 +10,7 @@ import {
 } from "../readings";
 import type { RangeValue } from "../readings";
 import { ApiError } from "../../shared/api";
+import { ActiveAlerts } from "../alerts/ActiveAlerts";
 import { formatPressureRange, formatTemperatureRange } from "../batches/format";
 import { ErrorState } from "./components/ErrorState";
 import { MEASUREMENTS, MEASUREMENT_ORDER, formatDateTime } from "./format";
@@ -113,6 +114,7 @@ export function TankDetailPage() {
           </p>
         )}
       </section>
+      <ActiveAlerts tankId={tank.data.id} />
       <RangeSelector value={range} onChange={selectRange} />
       {series !== undefined ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-1">

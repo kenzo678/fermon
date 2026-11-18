@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { Route, Routes } from "react-router";
 import { describe, expect, it } from "vitest";
 import { API_URL } from "../../shared/api";
@@ -259,6 +259,29 @@ describe("BatchDetailPage", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Better Ale" })).toBeInTheDocument();
     expect(body).toMatchObject({ beer_name: "Better Ale", version: 4 });
     expect(body).not.toHaveProperty("tank_id");
+  });
+
+  it("never flags its own save as changed elsewhere while lists and tanks refetch", async () => {
+    mockBatch(makeBatch({ version: 4 }));
+    server.use(
+      http.patch(`${API_URL}/batches/b1`, () => HttpResponse.json(makeBatch({ beer_name: "Better Ale", version: 5 }))),
+      http.get(`${API_URL}/tanks`, async () => {
+        await delay(300);
+        return HttpResponse.json([makeTank("tank-1"), makeTank("tank-2")]);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    const name = await screen.findByLabelText("Beer name");
+    await user.clear(name);
+    await user.type(name, "Better Ale");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    const deadline = Date.now() + 700;
+    while (Date.now() < deadline) {
+      expect(screen.queryByText(/changed elsewhere/)).not.toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(screen.getByLabelText("Beer name")).toHaveValue("Better Ale");
   });
 
   it("tells the user to reload on a stale edit and reloads on request", async () => {

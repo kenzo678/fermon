@@ -74,6 +74,25 @@ describe("validate", () => {
   });
 });
 
+describe("unparseable datetimes", () => {
+  it("rejects an unparseable planned start and expected end", () => {
+    const errors = validate(valid({ planned_start: "not-a-date", expected_end: "31/02/xx" }));
+    expect(errors.planned_start).toBe("Enter a valid date and time");
+    expect(errors.expected_end).toBe("Enter a valid date and time");
+  });
+
+  it("fromLocalInput returns null instead of throwing", () => {
+    expect(fromLocalInput("not-a-date")).toBeNull();
+    expect(fromLocalInput("")).toBeNull();
+  });
+
+  it("request builders never throw on unparseable input", () => {
+    expect(() => toCreateBody(valid({ planned_start: "garbage", expected_end: "garbage" }))).not.toThrow();
+    const values = valuesFromBatch(makeBatch());
+    expect(() => toPatchBody({ ...values, planned_start: "garbage", expected_end: "garbage" }, 2)).not.toThrow();
+  });
+});
+
 describe("applyTemplate", () => {
   it("prefills the targets from the preset", () => {
     const next = applyTemplate(valid(), "ale", templates);

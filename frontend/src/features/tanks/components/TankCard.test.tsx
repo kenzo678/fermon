@@ -96,4 +96,15 @@ describe("TankCard", () => {
     expect(screen.getByText("American Pale Ale")).toBeInTheDocument();
     expect(screen.queryByText("No active batch")).not.toBeInTheDocument();
   });
+
+  it("shows no alert indicator without open alerts", () => {
+    renderWithProviders(<TankCard tank={makeTank("tank-1")} />);
+    expect(screen.queryByRole("link", { name: /alert/i })).not.toBeInTheDocument();
+  });
+
+  it("links an alert indicator to that tank's alerts", () => {
+    renderWithProviders(<TankCard tank={makeTank("a b", { open_alerts: 2 })} />);
+    const link = screen.getByRole("link", { name: /2 unresolved alerts/ });
+    expect(link).toHaveAttribute("href", "/alerts?tank=a%20b");
+  });
 });

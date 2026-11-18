@@ -219,4 +219,58 @@ describe("TankDetailPage", () => {
     expect(screen.getByRole("status", { name: "Connection: Offline" })).toBeInTheDocument();
     expect(screen.getAllByTestId("chart")).toHaveLength(3);
   });
+
+  describe("active batch", () => {
+    const active_batch = {
+      id: "b-7",
+      beer_name: "Pale Ale",
+      style: "American Pale Ale",
+      targets: { temperature_min: 18, temperature_max: 21, pressure_max: 1, pressure_min: null, expected_final_abv: 5 },
+      started_at: "2026-03-01T10:05:00Z",
+      expected_end: null,
+    };
+    const bandOf = (chart: HTMLElement | undefined) => {
+      const option = JSON.parse(chart?.dataset.option ?? "{}") as {
+        series: Array<{ name: string; markArea?: { data: unknown } }>;
+      };
+      return option.series.find((s) => s.name === "Average")?.markArea?.data;
+    };
+
+    it("shows the batch, its targets and a link to it in the header", async () => {
+      server.use(
+        http.get(tankUrl, () => HttpResponse.json(makeTank("tank-1", { active_batch }))),
+        http.get(aggUrl, () => HttpResponse.json(fullSeries)),
+      );
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const link = await screen.findByRole("link", { name: "Pale Ale" });
+      expect(link).toHaveAttribute("href", "/batches/b-7");
+      expect(screen.getByText(/American Pale Ale/)).toBeInTheDocument();
+      expect(screen.getByText("18–21 °C")).toBeInTheDocument();
+      expect(screen.getByText("up to 1 bar")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Start a batch" })).not.toBeInTheDocument();
+    });
+
+    it("draws the target bands on the temperature and pressure charts only", async () => {
+      server.use(
+        http.get(tankUrl, () => HttpResponse.json(makeTank("tank-1", { active_batch }))),
+        http.get(aggUrl, () => HttpResponse.json(fullSeries)),
+      );
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const charts = await screen.findAllByTestId("chart");
+      expect(bandOf(charts[0])).toEqual([[{ yAxis: 18 }, { yAxis: 21 }]]);
+      expect(bandOf(charts[1])).toEqual([[{ yAxis: 0 }, { yAxis: 1 }]]);
+      expect(bandOf(charts[2])).toBeUndefined();
+    });
+
+    it("offers to start a batch, and draws no band, when none is active", async () => {
+      useHappyPath();
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const charts = await screen.findAllByTestId("chart");
+      expect(screen.getByRole("link", { name: "Start a batch" })).toHaveAttribute(
+        "href",
+        "/batches/new?tank=tank-1",
+      );
+      expect(charts.map(bandOf)).toEqual([undefined, undefined, undefined]);
+    });
+  });
 });

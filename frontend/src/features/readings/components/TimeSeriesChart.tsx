@@ -1,12 +1,26 @@
 import { LineChart } from "echarts/charts";
-import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  MarkAreaComponent,
+  TooltipComponent,
+} from "echarts/components";
 import { init, use as registerModules } from "echarts/core";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useRef } from "react";
 
 // Register only what the charts use to keep the bundle small.
-registerModules([LineChart, GridComponent, TooltipComponent, DataZoomComponent, LegendComponent, CanvasRenderer]);
+registerModules([
+  LineChart,
+  GridComponent,
+  TooltipComponent,
+  DataZoomComponent,
+  LegendComponent,
+  MarkAreaComponent,
+  CanvasRenderer,
+]);
 
 interface TimeSeriesChartProps {
   option: EChartsCoreOption;

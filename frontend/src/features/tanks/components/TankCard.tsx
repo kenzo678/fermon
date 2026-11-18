@@ -29,6 +29,20 @@ export function TankCard({ tank }: TankCardProps) {
           {tank.display_name ?? tank.id}
         </Link>
       </h3>
+      {tank.active_batch ? (
+        <p className="text-sm text-slate-700">
+          {/* Above the stretched card link so the batch stays clickable. */}
+          <Link
+            to={`/batches/${encodeURIComponent(tank.active_batch.id)}`}
+            className="relative z-10 font-medium underline"
+          >
+            {tank.active_batch.beer_name}
+          </Link>{" "}
+          <span className="text-slate-500">{tank.active_batch.style}</span>
+        </p>
+      ) : (
+        <p className="text-sm text-slate-500">No active batch</p>
+      )}
       <dl className="grid grid-cols-3 gap-2">
         {MEASUREMENT_ORDER.map((measurement) => (
           <div key={measurement}>

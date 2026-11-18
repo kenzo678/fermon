@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { API_URL } from "../shared/api";
-import { makeTank } from "../test/fixtures";
+import { makeBatch, makeTank } from "../test/fixtures";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { server } from "../test/server";
 import { AppRoutes } from "./AppRoutes";
@@ -44,5 +44,45 @@ describe("AppRoutes", () => {
     renderWithProviders(<AppRoutes />, { route: "/" });
     await userEvent.click(await screen.findByRole("link", { name: "tank-1" }));
     expect(await screen.findByRole("radiogroup", { name: "Time range" })).toBeInTheDocument();
+  });
+
+  it("renders the batches list at /batches and links to the form", async () => {
+    server.use(
+      http.get(`${API_URL}/batches`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/batches" });
+    expect(await screen.findByRole("heading", { level: 2, name: "Batches" })).toBeInTheDocument();
+    expect(await screen.findByText("No batches match these filters")).toBeInTheDocument();
+  });
+
+  it("renders the new batch form at /batches/new", async () => {
+    server.use(
+      http.get(`${API_URL}/batch-templates`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/batches/new" });
+    expect(await screen.findByRole("heading", { level: 2, name: "New batch" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Beer name")).toBeInTheDocument();
+  });
+
+  it("renders a batch at /batches/:batchId", async () => {
+    server.use(
+      http.get(`${API_URL}/batches/b1`, () => HttpResponse.json(makeBatch())),
+      http.get(`${API_URL}/batch-templates`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/batches/b1" });
+    expect(await screen.findByRole("heading", { level: 2, name: "Pale Ale" })).toBeInTheDocument();
+  });
+
+  it("navigates between sections with the header links", async () => {
+    server.use(
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])),
+      http.get(`${API_URL}/batches`, () => HttpResponse.json([])),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/" });
+    await userEvent.click(await screen.findByRole("link", { name: "Batches" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Batches" })).toBeInTheDocument();
   });
 });

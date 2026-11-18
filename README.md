@@ -467,6 +467,22 @@ valor por defecto). Un tanque inexistente muestra "Tank not found". Cualquier ot
 directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
 
 
+### Lotes en la UI
+
+El encabezado tiene la navegación "Tanks" / "Batches". Rutas (cargadas bajo demanda, fuera del
+bundle principal): `/batches` (lista con filtros `?tank_id=` y `?status=`; tabla en escritorio,
+tarjetas en móvil), `/batches/new` (formulario; `?tank=<id>` preselecciona el tanque) y
+`/batches/:batchId` (edición mientras está `planned` o `active`, solo lectura al finalizar; botón
+"Start batch" y "Finish batch" con confirmación).
+
+La plantilla (`ale`, `lager`, `custom`) precarga los rangos desde `GET /batch-templates`; el
+formulario valida igual que el backend (obligatorios, mín < máx) pero siempre muestra los 422 del
+servidor junto al campo correspondiente. Las ediciones envían la `version` del lote: un 409 muestra
+"This batch changed since you opened it" con un botón para recargar. Al crear, iniciar o finalizar
+se invalidan los lotes y los tanques, de modo que la tarjeta y el detalle del tanque muestran el
+lote activo (o "No active batch" / "Start a batch") y los gráficos sombrean el rango objetivo de
+temperatura y presión (`markArea`).
+
 ### Pruebas e2e (Playwright)
 
 Corren contra el stack real con el simulador publicando, en Chromium de escritorio y en un

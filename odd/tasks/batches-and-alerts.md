@@ -48,7 +48,7 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 - [x] T2 (original) — Motor de alertas: reglas fuera de rango sostenido (5 min) y sensor silencioso (10 min),
   ciclo de vida abierta/reconocida/resuelta, persistencia, API (`GET /alerts`, reconocer), aviso en
   tiempo real por WebSocket. PR del backend.
-- [ ] T3 — UI de lotes: formulario (con plantillas), estados, lote activo en la tarjeta y en el
+- [x] T3 — UI de lotes: formulario (con plantillas), estados, lote activo en la tarjeta y en el
   detalle, bandas de rango objetivo en los gráficos.
 - [ ] T4 — UI de alertas: contador, página con filtros, "Reconocer", indicador en la tarjeta, aviso
   en vivo.
@@ -161,9 +161,37 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   RED: 2 failed; GREEN 559 passed; ruff/format/mypy OK.
 - Entrega: push y PR del backend (T1, T2a, T2b).
 
+- Rama `feat/batches-alerts-ui` desde `main` (`d9387dc`) para T3–T5 (backend mergeado en PR #6; OpenSpec
+  y export de Engram en PR #7).
+- T3 completada (ruta delegada, un escritor), sin dependencias nuevas. `apiSend` (POST/PATCH) comparte
+  el contrato de errores de `apiGet`; tipos `Batch`, `BatchTemplate`, `ActiveBatch`, y `Tank` con
+  `active_batch` y `open_alerts`. `features/batches`: `batchKeys`, hooks con invalidación de lotes y
+  tanques, lógica pura del formulario (`form.ts`: validación espejo del backend, precarga por
+  plantilla, mapeo de 422 al campo), páginas diferidas `/batches`, `/batches/new` (con `?tank=`) y
+  `/batches/:batchId` (editar con `version`, Iniciar, Finalizar con confirmación en línea, mensajes
+  claros para los 409 `tank_id` / `version` / `status`). Integración: navegación Tanks/Batches, lote
+  activo en la tarjeta y en el detalle del tanque, bandas `markArea` de rangos objetivo en los
+  gráficos. Evidencia TDD: RED (`apiSend` 6 failed; "Failed to resolve import ./form", "./BatchForm",
+  "./BatchDetailPage"; 14 failed de integración); GREEN 195 passed; lint y typecheck limpios
+  (verificado por el orquestador). Bundle principal 96.5 kB gzip. Smoke contra la API real: las
+  formas de respuesta coinciden con los tipos. Sin verificación visual en navegador (queda para T5).
+  Restos del smoke en la base dev: un lote finalizado y uno planificado en tank-1 (no hay DELETE).
+
 ## Trabajo futuro
 - Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de
   refresh de los continuous aggregates (`tuple concurrently deleted`); visto una vez, no se reprodujo.
 
+- Revisión RDD de T3 (`41ed665`, 2205 líneas): aprobada por el usuario, **aprobada** y reconocida.
+  Corregido dentro de T3 antes del push (ruta delegada):
+  - WARNING errores de un guardado fallido que quedaban tras iniciar/finalizar → `update.reset()` al
+    adoptar una copia nueva del servidor.
+  - WARNING remount por `key={version}` que descartaba ediciones sin guardar en refetch de fondo → la
+    página adopta la copia del servidor solo si el formulario no está sucio; si lo está, conserva las
+    ediciones y muestra un aviso con "Reload" (el próximo guardado daría 409 igual).
+  - Editar un campo limpia su error del servidor; elegir plantilla limpia solo los errores de rangos.
+  - Tests de "Try again" en las tres páginas (caracterización).
+  RED: 6 failed; 4 de caracterización declarados. GREEN 205 passed; lint y typecheck limpios
+  (verificado por el orquestador).
+
 ## Próximo paso
-Merge del PR del backend (decisión del usuario); después T3 (UI de lotes) en una rama nueva.
+T4 — UI de alertas.

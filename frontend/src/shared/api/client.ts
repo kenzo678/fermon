@@ -57,23 +57,40 @@ async function readErrorDetail(response: Response, signal?: AbortSignal): Promis
   }
 }
 
-export async function apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const url = buildUrl(path, options.params);
+async function request<T>(url: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, { signal: options.signal });
+    response = await fetch(url, { ...init, signal });
   } catch (cause) {
-    rethrowIfAborted(options.signal, cause);
+    rethrowIfAborted(signal, cause);
     throw new ApiError(0, [], "Network error: could not reach the API");
   }
   if (!response.ok) {
-    throw new ApiError(response.status, await readErrorDetail(response, options.signal));
+    throw new ApiError(response.status, await readErrorDetail(response, signal));
   }
   // Every endpoint we consume returns JSON, so an empty (204) or non-JSON 2xx body is an error.
   try {
     return (await response.json()) as T;
   } catch (cause) {
-    rethrowIfAborted(options.signal, cause);
+    rethrowIfAborted(signal, cause);
     throw new ApiError(response.status, [], "Invalid JSON response");
   }
+}
+
+export async function apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return request<T>(buildUrl(path, options.params), {}, options.signal);
+}
+
+/** POST/PATCH with an optional JSON body; same error contract as `apiGet`. */
+export async function apiSend<T>(
+  method: "POST" | "PATCH",
+  path: string,
+  body?: unknown,
+  options: Pick<RequestOptions, "signal"> = {},
+): Promise<T> {
+  const init: RequestInit =
+    body === undefined
+      ? { method }
+      : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  return request<T>(buildUrl(path, undefined), init, options.signal);
 }

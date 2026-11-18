@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { makeReading, makeTank } from "../../../test/fixtures";
+import { makeBatch, makeReading, makeTank } from "../../../test/fixtures";
 import { renderWithProviders } from "../../../test/renderWithProviders";
 import { TankCard } from "./TankCard";
 
@@ -75,5 +75,25 @@ describe("TankCard", () => {
       "datetime",
       "2026-02-01T08:00:00Z",
     );
+  });
+
+  it("shows that the tank has no active batch", () => {
+    renderWithProviders(<TankCard tank={makeTank("tank-1")} />);
+    expect(screen.getByText("No active batch")).toBeInTheDocument();
+  });
+
+  it("shows the active batch with its style and links to it", () => {
+    const active_batch = {
+      id: "b-7",
+      beer_name: "Pale Ale",
+      style: "American Pale Ale",
+      targets: makeBatch().targets,
+      started_at: "2026-03-01T10:05:00Z",
+      expected_end: null,
+    };
+    renderWithProviders(<TankCard tank={makeTank("tank-1", { active_batch })} />);
+    expect(screen.getByRole("link", { name: "Pale Ale" })).toHaveAttribute("href", "/batches/b-7");
+    expect(screen.getByText("American Pale Ale")).toBeInTheDocument();
+    expect(screen.queryByText("No active batch")).not.toBeInTheDocument();
   });
 });

@@ -16,6 +16,11 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    {
+      name: "mobile",
+      use: { ...devices["Pixel 7"] },
+      // These specs mutate shared tank state (one active batch per tank): desktop only, to avoid races.
+      testIgnore: /batches-alerts\.spec\.ts/,
+    },
   ],
 });

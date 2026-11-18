@@ -467,6 +467,38 @@ valor por defecto). Un tanque inexistente muestra "Tank not found". Cualquier ot
 directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
 
 
+### Lotes en la UI
+
+El encabezado tiene la navegación "Tanks" / "Batches". Rutas (cargadas bajo demanda, fuera del
+bundle principal): `/batches` (lista con filtros `?tank_id=` y `?status=`; tabla en escritorio,
+tarjetas en móvil), `/batches/new` (formulario; `?tank=<id>` preselecciona el tanque) y
+`/batches/:batchId` (edición mientras está `planned` o `active`, solo lectura al finalizar; botón
+"Start batch" y "Finish batch" con confirmación).
+
+La plantilla (`ale`, `lager`, `custom`) precarga los rangos desde `GET /batch-templates`; el
+formulario valida igual que el backend (obligatorios, mín < máx) pero siempre muestra los 422 del
+servidor junto al campo correspondiente. Las ediciones envían la `version` del lote: un 409 muestra
+"This batch changed since you opened it" con un botón para recargar. Al crear, iniciar o finalizar
+se invalidan los lotes y los tanques, de modo que la tarjeta y el detalle del tanque muestran el
+lote activo (o "No active batch" / "Start a batch") y los gráficos sombrean el rango objetivo de
+temperatura y presión (`markArea`).
+
+### Alertas en la UI
+
+El encabezado suma el enlace "Alerts" con un contador de alertas sin resolver. La fuente de verdad
+del contador es la suma de `open_alerts` de `GET /tanks` (la misma consulta de la vista general, sin
+tope de paginación y coherente con las tarjetas). Una tarjeta con `open_alerts > 0` muestra un
+indicador que enlaza a `/alerts?tank=<id>`, y el detalle del tanque lista sus alertas activas.
+
+`/alerts` (carga bajo demanda): filtros de estado (Open / Acknowledged / Resolved, multiselección;
+por defecto Open + Acknowledged, siempre queda al menos uno), tanque (`?tank=`) y tipo (`?kind=`),
+las más nuevas primero. "Acknowledge" envía la `version` vista: un 409 por `status` muestra "already
+resolved" y un 409 por `version` refresca la lista y pide reintentar. Un único WebSocket
+`/ws/alerts`, montado una sola vez en el shell, inserta/reemplaza cada revisión en las listas en
+caché (según los filtros de cada una, ignorando versiones más antiguas); como `open_alerts` solo
+cambia cuando una alerta se abre o se resuelve, esos eventos (no los reconocimientos) vuelven a pedir
+los tanques, agrupados en 250 ms. En cada reconexión se invalidan las listas de alertas y los tanques.
+
 ### Pruebas e2e (Playwright)
 
 Corren contra el stack real con el simulador publicando, en Chromium de escritorio y en un
@@ -476,10 +508,20 @@ instala ningún navegador en el equipo anfitrión.
 
 ```sh
 docker compose run --rm api uv run alembic upgrade head   # primero las migraciones
+# Umbrales de alerta cortos para el ingestor (los valores por defecto son 300/120/600/60 s):
+export ALERT_OUT_OF_RANGE_SECONDS=15 ALERT_RESOLVE_SECONDS=10 ALERT_SILENT_SECONDS=20 ALERT_SILENT_CHECK_INTERVAL_SECONDS=3
 docker compose --profile simulator --profile e2e up -d timescaledb mosquitto api ingestor simulator frontend-e2e
 docker compose run --rm e2e                                # npx playwright test
 docker compose --profile simulator --profile e2e down
 ```
+
+Las alertas reales tardan minutos, así que el `ingestor` lee sus umbrales `ALERT_*` del entorno del
+shell (en `docker-compose.yml` con los valores de producción como defecto: sin exportarlas nada
+cambia). Si el `ingestor` ya estaba corriendo con otros valores, `up -d` lo recrea al detectar el
+cambio de entorno; no hace falta un segundo ingestor. `frontend/e2e/batches-alerts.spec.ts` crea sus
+propios lotes en `tank-1` (a veces por la API), los finaliza al terminar y corre en serie y solo en
+el proyecto de escritorio, porque un tanque admite un único lote activo y el proyecto móvil
+competiría por él. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
 
 Prerrequisitos: migraciones aplicadas y simulador activo (las pruebas esperan tank-1 y tank-2 con
 lecturas). El servicio `e2e` espera a que `api` y `frontend-e2e` respondan (healthchecks) y un

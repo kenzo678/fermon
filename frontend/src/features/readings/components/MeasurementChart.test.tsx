@@ -49,6 +49,35 @@ describe("buildSeriesOption", () => {
   });
 });
 
+describe("buildSeriesOption target band", () => {
+  const average = (option: ReturnType<typeof buildSeriesOption>) =>
+    (option.series as Array<Record<string, unknown>>).find((s) => s.name === "Average")!;
+
+  it("draws no band without a target", () => {
+    expect(average(buildSeriesOption(points, "°C")).markArea).toBeUndefined();
+  });
+
+  it("draws the target range as a markArea between min and max", () => {
+    const area = average(buildSeriesOption(points, "°C", { min: 18, max: 21 })).markArea as {
+      silent: boolean;
+      data: Array<Array<{ yAxis: number }>>;
+    };
+    expect(area.silent).toBe(true);
+    expect(area.data).toEqual([[{ yAxis: 18 }, { yAxis: 21 }]]);
+  });
+
+  it("starts the band at zero when there is no minimum (pressure cannot be negative)", () => {
+    const area = average(buildSeriesOption(points, "bar", { min: null, max: 1 })).markArea as {
+      data: Array<Array<{ yAxis: number }>>;
+    };
+    expect(area.data).toEqual([[{ yAxis: 0 }, { yAxis: 1 }]]);
+  });
+
+  it("keeps the band even when the series has no points", () => {
+    expect(average(buildSeriesOption([], "°C", { min: 18, max: 21 })).markArea).toBeDefined();
+  });
+});
+
 describe("MeasurementChart", () => {
   it("renders the chart for a series with data", () => {
     render(<MeasurementChart title="Temperature" unit="°C" points={points} />);
@@ -60,5 +89,24 @@ describe("MeasurementChart", () => {
     render(<MeasurementChart title="Pressure" unit="bar" points={[]} />);
     expect(screen.getByText("No data in this range")).toBeInTheDocument();
     expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
+  });
+
+  it("exposes the configured target band for assistive and e2e checks", () => {
+    const { container } = render(
+      <MeasurementChart title="Temperature" unit="°C" points={points} target={{ min: 18, max: 21 }} />,
+    );
+    expect(container.querySelector("section")).toHaveAttribute("data-target-band", "18..21");
+  });
+
+  it("writes a one-sided band with the missing bound left empty", () => {
+    const render1 = (target: { min: number | null; max: number | null }) =>
+      render(<MeasurementChart title="T" unit="u" points={points} target={target} />).container.querySelector("section");
+    expect(render1({ min: null, max: 10 })).toHaveAttribute("data-target-band", "..10");
+    expect(render1({ min: 18, max: null })).toHaveAttribute("data-target-band", "18..");
+  });
+
+  it("leaves the band attribute out without a target", () => {
+    const { container } = render(<MeasurementChart title="Temperature" unit="°C" points={points} />);
+    expect(container.querySelector("section")).not.toHaveAttribute("data-target-band");
   });
 });

@@ -52,7 +52,7 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   detalle, bandas de rango objetivo en los gráficos.
 - [x] T4 — UI de alertas: contador, página con filtros, "Reconocer", indicador en la tarjeta, aviso
   en vivo.
-- [ ] T5 — e2e de lotes y alertas (con el simulador forzando una desviación); PR del frontend.
+- [x] T5 — e2e de lotes y alertas (con el simulador forzando una desviación); PR del frontend.
 
 ## Criterios de aceptación
 - Crear un lote activo en tank-1 con rango de temperatura que el simulador no cumple genera una
@@ -217,6 +217,16 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   null o fecha válida, así un mensaje malformado nunca rompe el render. RED: 5 failed; GREEN 279
   passed; lint y typecheck limpios.
 
+- T5 completada (ruta delegada, un escritor). Umbrales `ALERT_*` del `ingestor` pasan por el entorno
+  con los valores de producción por defecto (300/120/600/60); el e2e exporta 15/10/20/3 (se descartó
+  un `ingestor-e2e` porque duplicaría el consumo MQTT). Specs `batches-alerts.spec.ts` (serie, solo en
+  el proyecto de escritorio, tank-1, limpieza vía API con `releaseTank`): lote desde la UI con
+  plantilla ale y bandas visibles; alerta en vivo (badge, tarjeta, `/alerts`) y Reconocer; finalizar
+  desde la UI resuelve con "batch was finished"; conflicto de versión con Reload. Cambio menor de app
+  con TDD: `MeasurementChart` expone `data-target-band` (RED 1 failed → GREEN). Resultados: 16 passed
+  en 2 corridas en frío del escritor y 1 del orquestador; unitarios 281; backend unitario 476.
+  Sin cobertura e2e móvil para lotes y alertas (la UI es responsive pero no se ejercitó).
+
 ## Trabajo futuro (frontend)
 - SUGGESTION `R3-reconnect-overwrite`: al reconectar, el refetch de listas puede pisar por un momento
   un evento en vivo más nuevo (sin guardia de versión) hasta el próximo evento o refetch. Aceptado
@@ -224,5 +234,15 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 - SUGGESTION `R3-busy-wait-test`: el test del aviso falso usa una espera real de 700 ms; reemplazarlo
   por uno que espere la request demorada.
 
+- Revisión RDD de T5 (`e564887`, 277 líneas): aprobada por el usuario, **aprobada** y reconocida.
+  Corregido dentro de T5 antes del push (ruta delegada): la alerta resuelta se verifica por id (vía
+  `GET /alerts?batch_id=` y `data-alert-id` en `AlertItem`) y por API (`batch_finished`); el contador
+  global se mide como delta contra una línea base de la API; el panel del lote afirma "18–21 °C";
+  `data-target-band` simétrico para límites parciales (`min..`, `..max`). RED 2 failed → GREEN 283;
+  e2e 16 passed en 2 corridas en frío y 1 sobre el stack reutilizado.
+- La revisión de la rama completa (4445 líneas) superó el contexto del revisor; cada commit se revisó
+  por separado.
+- Entrega: push y PR del frontend (T3, T4, T5).
+
 ## Próximo paso
-T5 (e2e de lotes y alertas) y PR del frontend.
+Merge del PR del frontend (decisión del usuario); después, generador de reportes determinista.

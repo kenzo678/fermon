@@ -47,6 +47,11 @@ describe("AlertItem", () => {
     expectStamp("Opened", "2026-03-01T12:00:00Z");
   });
 
+  it("exposes the alert id so a specific alert can be located", () => {
+    renderWithProviders(<AlertItem alert={makeAlert({ id: "alert-42" })} onAcknowledge={() => {}} />);
+    expect(screen.getByRole("article")).toHaveAttribute("data-alert-id", "alert-42");
+  });
+
   it("offers Acknowledge on open alerts and reports the alert", async () => {
     const onAcknowledge = vi.fn();
     const alert = makeAlert();

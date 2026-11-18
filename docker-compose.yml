@@ -57,6 +57,11 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://fermon:fermon@timescaledb:5432/fermon}
       MQTT_HOST: ${MQTT_HOST:-mosquitto}
       MQTT_PORT: ${MQTT_PORT:-1883}
+      # Alert thresholds (seconds). The defaults are the production ones; the e2e run overrides them.
+      ALERT_OUT_OF_RANGE_SECONDS: ${ALERT_OUT_OF_RANGE_SECONDS:-300}
+      ALERT_RESOLVE_SECONDS: ${ALERT_RESOLVE_SECONDS:-120}
+      ALERT_SILENT_SECONDS: ${ALERT_SILENT_SECONDS:-600}
+      ALERT_SILENT_CHECK_INTERVAL_SECONDS: ${ALERT_SILENT_CHECK_INTERVAL_SECONDS:-60}
     volumes:
       - ./backend:/app
       - ingestor-venv:/app/.venv

@@ -90,4 +90,23 @@ describe("MeasurementChart", () => {
     expect(screen.getByText("No data in this range")).toBeInTheDocument();
     expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
   });
+
+  it("exposes the configured target band for assistive and e2e checks", () => {
+    const { container } = render(
+      <MeasurementChart title="Temperature" unit="°C" points={points} target={{ min: 18, max: 21 }} />,
+    );
+    expect(container.querySelector("section")).toHaveAttribute("data-target-band", "18..21");
+  });
+
+  it("writes a one-sided band with the missing bound left empty", () => {
+    const render1 = (target: { min: number | null; max: number | null }) =>
+      render(<MeasurementChart title="T" unit="u" points={points} target={target} />).container.querySelector("section");
+    expect(render1({ min: null, max: 10 })).toHaveAttribute("data-target-band", "..10");
+    expect(render1({ min: 18, max: null })).toHaveAttribute("data-target-band", "18..");
+  });
+
+  it("leaves the band attribute out without a target", () => {
+    const { container } = render(<MeasurementChart title="Temperature" unit="°C" points={points} />);
+    expect(container.querySelector("section")).not.toHaveAttribute("data-target-band");
+  });
 });

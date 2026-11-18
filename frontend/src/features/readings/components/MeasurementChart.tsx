@@ -5,10 +5,13 @@ import { TimeSeriesChart } from "./TimeSeriesChart";
 
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-/** Target range of the active batch; a missing minimum draws the band from 0 (pressure only). */
+/**
+ * Target range of the active batch. A missing minimum draws the band from 0 (pressure only); a
+ * missing maximum draws it up to the highest observed value.
+ */
 export interface TargetBand {
   min: number | null;
-  max: number;
+  max: number | null;
 }
 
 /**
@@ -80,7 +83,7 @@ export function buildSeriesOption(
           markArea: {
             silent: true,
             itemStyle: { color: "#22c55e", opacity: 0.12 },
-            data: [[{ yAxis: target.min ?? 0 }, { yAxis: target.max }]],
+            data: [[{ yAxis: target.min ?? 0 }, { yAxis: target.max ?? Math.max(...points.map((p) => p.max)) }]],
           },
         }),
       },
@@ -98,14 +101,19 @@ interface MeasurementChartProps {
 export function MeasurementChart({ title, unit, points, target }: MeasurementChartProps) {
   // Depend on the primitives: callers build `target` inline on every render.
   const min = target?.min ?? null;
-  const max = target?.max;
+  const max = target?.max ?? null;
+  const hasTarget = target !== undefined;
   const option = useMemo(
-    () => buildSeriesOption(points, unit, max === undefined ? undefined : { min, max }),
-    [points, unit, min, max],
+    () => buildSeriesOption(points, unit, hasTarget ? { min, max } : undefined),
+    [points, unit, hasTarget, min, max],
   );
   const heading = `${title} (${unit})`;
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
+    <section
+      className="rounded-lg border border-slate-200 bg-white p-4"
+      // The band is drawn on a canvas; this makes the configured range observable (e2e, tooling).
+      data-target-band={min === null && max === null ? undefined : `${min ?? ""}..${max ?? ""}`}
+    >
       <h3 className="text-base font-semibold">{heading}</h3>
       {points.length === 0 ? (
         <p className="mt-4 text-sm text-slate-600">No data in this range</p>

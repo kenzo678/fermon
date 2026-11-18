@@ -24,7 +24,7 @@ function Stamp({ label, iso }: { label: string; iso: string }) {
 export function AlertItem({ alert, onAcknowledge, acknowledging = false, error, showTank = true }: AlertItemProps) {
   const note = resolutionNote(alert);
   return (
-    <article className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <article data-alert-id={alert.id} className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <AlertStatusChip status={alert.status} />
         <span className="text-xs text-slate-500">{KIND_LABELS[alert.kind]}</span>

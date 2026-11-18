@@ -508,10 +508,20 @@ instala ningún navegador en el equipo anfitrión.
 
 ```sh
 docker compose run --rm api uv run alembic upgrade head   # primero las migraciones
+# Umbrales de alerta cortos para el ingestor (los valores por defecto son 300/120/600/60 s):
+export ALERT_OUT_OF_RANGE_SECONDS=15 ALERT_RESOLVE_SECONDS=10 ALERT_SILENT_SECONDS=20 ALERT_SILENT_CHECK_INTERVAL_SECONDS=3
 docker compose --profile simulator --profile e2e up -d timescaledb mosquitto api ingestor simulator frontend-e2e
 docker compose run --rm e2e                                # npx playwright test
 docker compose --profile simulator --profile e2e down
 ```
+
+Las alertas reales tardan minutos, así que el `ingestor` lee sus umbrales `ALERT_*` del entorno del
+shell (en `docker-compose.yml` con los valores de producción como defecto: sin exportarlas nada
+cambia). Si el `ingestor` ya estaba corriendo con otros valores, `up -d` lo recrea al detectar el
+cambio de entorno; no hace falta un segundo ingestor. `frontend/e2e/batches-alerts.spec.ts` crea sus
+propios lotes en `tank-1` (a veces por la API), los finaliza al terminar y corre en serie y solo en
+el proyecto de escritorio, porque un tanque admite un único lote activo y el proyecto móvil
+competiría por él. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
 
 Prerrequisitos: migraciones aplicadas y simulador activo (las pruebas esperan tank-1 y tank-2 con
 lecturas). El servicio `e2e` espera a que `api` y `frontend-e2e` respondan (healthchecks) y un

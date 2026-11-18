@@ -8,6 +8,14 @@
       "sessions": 10,
       "memories": 15,
       "prompts": 0
+    },
+    {
+      "id": "8ad2e3dd",
+      "created_by": "parzival",
+      "created_at": "2026-11-18T02:19:26.59835124Z",
+      "sessions": 3,
+      "memories": 2,
+      "prompts": 0
     }
   ]
 }

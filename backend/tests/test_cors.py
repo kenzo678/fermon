@@ -48,6 +48,16 @@ async def test_simple_request_from_an_allowed_origin_gets_the_cors_header(
     assert response.headers["access-control-allow-origin"] == ALLOWED
 
 
+async def test_preflight_allows_put_and_delete_so_browsers_can_edit_quality_specs(
+    client: AsyncClient,
+) -> None:
+    for method in ("PUT", "DELETE"):
+        result = await preflight(client, ALLOWED, method=method)
+
+        assert result["status"] == "200", method
+        assert method in result["access-control-allow-methods"]
+
+
 async def test_preflight_allows_patch_so_browsers_can_edit_batches(client: AsyncClient) -> None:
     result = await preflight(client, ALLOWED, method="PATCH")
 

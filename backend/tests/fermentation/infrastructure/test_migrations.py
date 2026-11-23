@@ -96,7 +96,9 @@ async def test_tanks_migration_backfills_tanks_from_existing_readings(
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")
         async with engine.begin() as conn:
-            await conn.execute(text("TRUNCATE readings, tanks, batches, alerts"))
+            await conn.execute(
+                text("TRUNCATE readings, tanks, batches, alerts, lab_analyses, lab_results")
+            )
         await engine.dispose()
 
 
@@ -181,6 +183,90 @@ async def test_alerts_migration_creates_the_table_and_is_dropped_on_downgrade(
         await asyncio.to_thread(command.downgrade, config, "0004")
         async with engine.connect() as conn:
             assert await conn.scalar(exists) is None
+            assert await conn.scalar(text("SELECT to_regclass('public.batches')")) is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_quality_migration_creates_both_tables_and_is_dropped_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    profiles = text("SELECT to_regclass('public.quality_profiles')")
+    specs = text("SELECT to_regclass('public.quality_specs')")
+    name_index = text(
+        "SELECT indexdef FROM pg_indexes "
+        "WHERE tablename = 'quality_profiles' AND indexname = 'uq_quality_profiles_name'"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert await conn.scalar(profiles) is not None
+            assert await conn.scalar(specs) is not None
+            definition = await conn.scalar(name_index)
+        assert definition is not None
+        assert "UNIQUE" in definition and "lower(name)" in definition
+
+        await asyncio.to_thread(command.downgrade, config, "0005")
+        async with engine.connect() as conn:
+            assert await conn.scalar(profiles) is None
+            assert await conn.scalar(specs) is None
+            assert await conn.scalar(text("SELECT to_regclass('public.alerts')")) is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_batch_quality_profile_migration_adds_the_link_and_drops_it_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    column = text(
+        "SELECT is_nullable FROM information_schema.columns "
+        "WHERE table_name = 'batches' AND column_name = 'quality_profile_id'"
+    )
+    foreign_key = text(
+        "SELECT confrelid::regclass::text FROM pg_constraint "
+        "WHERE conname = 'fk_batches_quality_profile_id'"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert await conn.scalar(column) == "YES"
+            assert await conn.scalar(foreign_key) == "quality_profiles"
+
+        await asyncio.to_thread(command.downgrade, config, "0006")
+        async with engine.connect() as conn:
+            assert await conn.scalar(column) is None
+            assert await conn.scalar(foreign_key) is None
+            assert await conn.scalar(text("SELECT to_regclass('public.batches')")) is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_lab_analyses_migration_creates_both_tables_and_drops_them_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    analyses = text("SELECT to_regclass('public.lab_analyses')")
+    results = text("SELECT to_regclass('public.lab_results')")
+    index = text(
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_lab_analyses_batch_id_sampled_at'"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert await conn.scalar(analyses) is not None
+            assert await conn.scalar(results) is not None
+            definition = await conn.scalar(index)
+        assert definition is not None and "batch_id, sampled_at" in definition
+
+        await asyncio.to_thread(command.downgrade, config, "0007")
+        async with engine.connect() as conn:
+            assert await conn.scalar(analyses) is None
+            assert await conn.scalar(results) is None
             assert await conn.scalar(text("SELECT to_regclass('public.batches')")) is not None
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")

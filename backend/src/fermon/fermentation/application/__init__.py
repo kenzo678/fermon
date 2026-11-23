@@ -21,6 +21,12 @@ from fermon.fermentation.application.ingest_reading import (
     IngestReadingCommand,
     IngestResult,
 )
+from fermon.fermentation.application.lab_analyses import (
+    GetLabAnalysis,
+    ListLabAnalyses,
+    RecordLabAnalysis,
+    RecordLabAnalysisCommand,
+)
 from fermon.fermentation.application.list_aggregated_readings import ListAggregatedReadings
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
@@ -32,12 +38,38 @@ from fermon.fermentation.application.manage_alerts import (
 from fermon.fermentation.application.ports import (
     AlertRepository,
     BatchRepository,
+    LabAnalysisRepository,
+    QualityProfileRepository,
     ReadingRepository,
     TankRepository,
+)
+from fermon.fermentation.application.quality import (
+    CreateQualityProfile,
+    EvaluateQualityValues,
+    GetQualityProfile,
+    ListQualityProfiles,
+    QualityEvaluation,
+    RemoveQualitySpec,
+    SaveQualitySpec,
+    SaveQualitySpecCommand,
 )
 from fermon.fermentation.application.tank_overview import TankOverview
 
 __all__ = [
+    "GetLabAnalysis",
+    "LabAnalysisRepository",
+    "ListLabAnalyses",
+    "RecordLabAnalysis",
+    "RecordLabAnalysisCommand",
+    "CreateQualityProfile",
+    "EvaluateQualityValues",
+    "GetQualityProfile",
+    "ListQualityProfiles",
+    "QualityEvaluation",
+    "QualityProfileRepository",
+    "RemoveQualitySpec",
+    "SaveQualitySpec",
+    "SaveQualitySpecCommand",
     "AcknowledgeAlert",
     "GetAlert",
     "ListAlerts",

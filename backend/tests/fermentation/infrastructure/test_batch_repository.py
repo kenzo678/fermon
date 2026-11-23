@@ -12,11 +12,14 @@ from fermon.fermentation.domain import (
     Batch,
     BatchStatus,
     ConcurrentBatchUpdateError,
+    QualityProfile,
+    QualityProfileNotFoundError,
     StyleTemplate,
     TargetRanges,
 )
 from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyBatchRepository,
+    SqlAlchemyQualityProfileRepository,
     SqlAlchemyTankRepository,
 )
 
@@ -181,3 +184,41 @@ async def test_database_rejects_unknown_status_and_unknown_tank(
             await conn.execute(text("UPDATE batches SET status = 'paused'"))
     with pytest.raises(IntegrityError, match="fk_batches_tank_id"):
         await batch_repository.add(make_batch(2, "ghost"))
+
+
+PROFILE_ID = UUID(int=500)
+
+
+async def add_profile(quality_repository: SqlAlchemyQualityProfileRepository) -> None:
+    await quality_repository.add(QualityProfile(id=PROFILE_ID, name="Pale lager", created_at=T0))
+
+
+async def test_quality_profile_link_round_trips_and_can_be_cleared(
+    batch_repository: SqlAlchemyBatchRepository,
+    quality_repository: SqlAlchemyQualityProfileRepository,
+) -> None:
+    await add_profile(quality_repository)
+    batch = make_batch(1, quality_profile_id=PROFILE_ID)
+
+    await batch_repository.add(batch)
+    assert await batch_repository.get(batch.id) == batch
+
+    cleared = batch.edit(quality_profile_id=None)
+    await batch_repository.update(cleared)
+    assert await batch_repository.get(batch.id) == cleared
+
+
+async def test_unknown_quality_profile_is_not_found_on_add_and_update(
+    batch_repository: SqlAlchemyBatchRepository,
+) -> None:
+    with pytest.raises(QualityProfileNotFoundError) as on_add:
+        await batch_repository.add(make_batch(1, quality_profile_id=PROFILE_ID))
+    assert on_add.value.field == "quality_profile_id"
+    assert await batch_repository.get(UUID(int=1)) is None
+
+    batch = make_batch(2)
+    await batch_repository.add(batch)
+    with pytest.raises(QualityProfileNotFoundError) as on_update:
+        await batch_repository.update(batch.edit(quality_profile_id=PROFILE_ID))
+    assert on_update.value.field == "quality_profile_id"
+    assert await batch_repository.get(batch.id) == batch

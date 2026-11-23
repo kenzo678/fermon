@@ -179,8 +179,8 @@ unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido
 
 ### CORS
 
-`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST` y
-`PATCH`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
+`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST`,
+`PATCH`, `PUT` y `DELETE`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
 `http://localhost:5173,http://localhost:3000`:
 
 ```sh
@@ -224,7 +224,88 @@ curl -X POST localhost:8000/batches/<id>/finish
 ```
 
 `GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
-`started_at`, `expected_end`), resuelto con una sola consulta para todos los tanques listados.
+`started_at`, `expected_end`, `quality_profile_id`), resuelto con una sola consulta para todos los
+tanques listados.
+
+Un lote puede asociarse a un **perfil de calidad** (ver más abajo) con `quality_profile_id`: se envía
+al crear y se cambia o se quita (`null`) con `PATCH` mientras el lote no haya terminado. Si el perfil no
+existe responde `404` con `field` `quality_profile_id`. Es opcional (migración `0007`, clave foránea a
+`quality_profiles`); los lotes anteriores quedan sin perfil.
+
+## Especificaciones de calidad
+
+Además de los sensores, la calidad de la elaboración se controla con análisis de laboratorio en cuatro
+etapas (`stage`): `brewhouse` (mosto frío), `maturation` (fin de reposo), `bright_beer` (filtración,
+tanque de presión) y `packaged` (producto terminado). Un **perfil de calidad** (p. ej. "Pale lager")
+guarda, por etapa y parámetro, una especificación de dos niveles:
+
+- `acceptance`: límite de aceptación (`min` y/o `max`, inclusivos; un lado vacío es "sin límite").
+- `internal` (opcional): rango interno de operación, que debe quedar dentro de `acceptance`.
+- `target` (opcional): valor objetivo, dentro del rango más estrecho.
+
+Un valor se evalúa como `in_spec` (dentro del interno), `warning` (fuera del interno pero dentro de la
+aceptación) u `out_of_spec`; sin rango interno, la aceptación hace de interno. Los números deben estar
+dentro del rango físico del parámetro (p. ej. pH 0–14). `<` y `≤` se guardan igual (inclusivos): la
+diferencia es menor que la resolución de los instrumentos. Migración `0006`.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /quality-parameters` | Catálogo: `code`, `name`, `unit`, `minimum`, `maximum` (extractos °P, alcohol, pH, color EBC, amargor IBU, turbidez, O₂, CO₂, diacetilo, …) |
+| `GET /quality-profile-templates` | Plantillas con especificaciones precargadas: `pale_lager` |
+| `POST /quality-profiles` | `201` perfil vacío, o precargado con `template`; `409` (`name`) si ya existe uno con ese nombre sin distinguir mayúsculas |
+| `GET /quality-profiles` | Perfiles por nombre, con sus especificaciones |
+| `GET /quality-profiles/{id}` | Un perfil; `404` (`profile_id`) |
+| `PUT /quality-profiles/{id}/specs/{stage}/{parameter}` | Crea o reemplaza la especificación; `422` nombra el campo inválido (p. ej. `internal.min`) |
+| `DELETE /quality-profiles/{id}/specs/{stage}/{parameter}` | `204`; `404` (`spec`) si no existe |
+| `POST /quality-profiles/{id}/evaluate` | Estado de cada valor de una etapa; `no_spec` si el perfil no especifica ese parámetro allí |
+
+La plantilla `pale_lager` trae 29 especificaciones repartidas en las cuatro etapas (extracto, pH,
+amargor, color, O₂ y FAN del mosto; extracto aparente, alcohol, diacetilo y turbidez al fin de reposo;
+alcohol, CO₂, O₂ disuelto, turbidez y temperatura en filtración; además espuma, TPO y UP en producto
+terminado). Son valores **ilustrativos** de manual para una lager rubia, pensados como punto de partida
+para editar con `PUT`; no son las especificaciones de ninguna cervecería.
+
+```sh
+curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' \
+  -d '{"name": "House lager", "template": "pale_lager"}'
+curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' -d '{"name": "Pale lager"}'
+curl -X PUT localhost:8000/quality-profiles/<id>/specs/bright_beer/ph -H 'Content-Type: application/json' \
+  -d '{"acceptance": {"min": 4.15, "max": 4.65}, "internal": {"min": 4.25, "max": 4.55}}'
+curl -X POST localhost:8000/quality-profiles/<id>/evaluate -H 'Content-Type: application/json' \
+  -d '{"stage": "bright_beer", "values": {"ph": 4.6, "color": 6.1}}'
+# -> ph: "warning", color: "no_spec"
+```
+
+Un lote se asocia a un perfil con `quality_profile_id` (ver Lotes), y sus análisis de laboratorio se
+evalúan contra ese perfil (ver la sección siguiente).
+
+## Análisis de laboratorio
+
+Un análisis es una muestra de un lote en una etapa (`stage`): momento de muestreo (`sampled_at`, por
+defecto ahora y nunca en el futuro), analista y notas opcionales, y uno o más valores por parámetro del
+catálogo. Al registrarlo, cada valor se evalúa contra el perfil de calidad del lote y el estado se
+**guarda** con el valor (`in_spec`, `warning`, `out_of_spec`, o `no_spec` si el perfil no especifica ese
+parámetro en esa etapa o el lote no tiene perfil), junto con el perfil usado. Es el registro de calidad
+de ese momento: editar después las especificaciones no cambia los análisis ya guardados. Un lote
+`planned` todavía no tiene análisis (`409` en `status`); uno `active` o `finished` sí, porque la
+filtración y el envasado ocurren después de la fermentación. Migración `0008`.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `POST /batches/{id}/lab-analyses` | `201` con los resultados evaluados; `404` (`batch_id`); `409` (`status`) si el lote está planificado; `422` con el campo (`values.ph`, `values.<código desconocido>`, `sampled_at`, …) |
+| `GET /batches/{id}/lab-analyses?stage=` | Análisis del lote, la muestra más antigua primero; filtro opcional por etapa |
+| `GET /lab-analyses/{id}` | Un análisis; `404` (`analysis_id`) |
+
+```sh
+curl -X POST localhost:8000/batches/<id>/lab-analyses -H 'Content-Type: application/json' -d '{
+  "stage": "brewhouse", "analyst": "M. Ruiz",
+  "values": {"original_extract": 11.4, "ph": 5.6, "wort_oxygen": 7.0}
+}'
+# -> original_extract: "in_spec", ph: "out_of_spec", wort_oxygen: "warning" (con la plantilla pale_lager)
+```
+
+Todavía no se puede editar ni borrar un análisis (una corrección se registra como un análisis nuevo), y
+los parámetros derivados por fórmula (p. ej. color = absorbancia × 25) se cargan ya calculados.
 
 ## Alertas
 

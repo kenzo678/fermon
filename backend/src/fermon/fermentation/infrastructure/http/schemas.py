@@ -106,6 +106,7 @@ class BatchIn(BaseModel):
     planned_start: AwareDatetime | None = None
     expected_end: AwareDatetime | None = None
     notes: str | None = None
+    quality_profile_id: UUID | None = None
 
 
 class BatchPatch(BaseModel):
@@ -120,6 +121,7 @@ class BatchPatch(BaseModel):
     planned_start: AwareDatetime | None = None
     expected_end: AwareDatetime | None = None
     notes: str | None = None
+    quality_profile_id: UUID | None = None
     version: int | None = Field(
         default=None,
         ge=1,
@@ -146,6 +148,7 @@ class BatchOut(BaseModel):
     notes: str | None
     created_at: AwareDatetime
     version: int
+    quality_profile_id: UUID | None
 
     @classmethod
     def from_domain(cls, batch: Batch) -> "BatchOut":
@@ -164,6 +167,7 @@ class BatchOut(BaseModel):
             notes=batch.notes,
             created_at=batch.created_at.astimezone(UTC),
             version=batch.version,
+            quality_profile_id=batch.quality_profile_id,
         )
 
 
@@ -176,6 +180,7 @@ class ActiveBatchOut(BaseModel):
     targets: TargetRangesOut
     started_at: AwareDatetime
     expected_end: AwareDatetime | None
+    quality_profile_id: UUID | None
 
     @classmethod
     def from_domain(cls, batch: Batch) -> "ActiveBatchOut":
@@ -187,6 +192,7 @@ class ActiveBatchOut(BaseModel):
             targets=TargetRangesOut.from_domain(batch.targets),
             started_at=batch.started_at.astimezone(UTC),
             expected_end=_utc(batch.expected_end),
+            quality_profile_id=batch.quality_profile_id,
         )
 
 

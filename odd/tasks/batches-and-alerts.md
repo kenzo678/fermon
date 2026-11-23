@@ -53,6 +53,39 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 - [x] T4 — UI de alertas: contador, página con filtros, "Reconocer", indicador en la tarjeta, aviso
   en vivo.
 - [x] T5 — e2e de lotes y alertas (con el simulador forzando una desviación); PR del frontend.
+- [x] T6 — Especificaciones de calidad de laboratorio (backend), base de la carga de análisis por etapa:
+  - T6a — Dominio: etapas (`brewhouse`, `maturation`, `bright_beer`, `packaged`), catálogo de
+    parámetros (unidad y límites físicos), especificación de dos niveles (rango interno dentro del
+    límite de aceptación, objetivo opcional) con evaluación `in_spec` / `warning` / `out_of_spec`, y
+    perfil de calidad con nombre (una especificación por etapa y parámetro).
+  - T6b — Persistencia (migración `0006`, nombre de perfil único sin mayúsculas), casos de uso y API:
+    `GET /quality-parameters`, `POST|GET /quality-profiles`, `PUT|DELETE
+    /quality-profiles/{id}/specs/{stage}/{parameter}`, `POST /quality-profiles/{id}/evaluate`; CORS
+    con `PUT` y `DELETE`.
+  - Fuera de alcance: asociar perfil a lote, cargar análisis, parámetros derivados por fórmula, UI.
+- [x] T6c — Plantilla de perfil de calidad `pale_lager` (como las plantillas de lote): valores
+  genéricos e ilustrativos de una lager rubia por etapa (no los de ninguna cervecería real);
+  `GET /quality-profile-templates` y `POST /quality-profiles` con `template` opcional que precarga
+  las especificaciones. Rama `feat/quality-profile-templates` encadenada sobre `feat/quality-specs`.
+- [x] T6d — Asociar un lote a un perfil de calidad: `quality_profile_id` opcional en el lote
+  (migración `0007`, FK a `quality_profiles`); se envía al crear y se cambia o quita (`null`) con
+  `PATCH`; `404` en `quality_profile_id` si el perfil no existe; visible en `BatchOut` y en
+  `active_batch` de `/tanks`. Rama `feat/batch-quality-profile` encadenada sobre
+  `feat/quality-profile-templates`.
+- [x] T7 — Análisis de laboratorio por etapa (backend), la parte "cargado" de la tesis. Un análisis es una
+  muestra de un lote en una etapa: momento de muestreo, analista y notas opcionales, y uno o más valores
+  por parámetro. Al registrarlo, cada valor se evalúa contra el perfil del lote y el estado
+  (`in_spec`/`warning`/`out_of_spec`/`no_spec`) se **guarda** junto con el perfil usado: es el registro de
+  calidad de ese momento y no cambia si después se editan las especificaciones. Rama `feat/lab-analyses`
+  encadenada sobre `feat/batch-quality-profile`.
+  - T7a — Dominio: `LabResult`, `LabAnalysis` (al menos un valor, parámetros sin repetir, valores
+    plausibles con campo `values.<parámetro>`, `sampled_at` no posterior al registro) y su creación desde
+    un lote: un lote `planned` no tiene análisis (`409` en `status`); `active` y `finished` sí (filtración
+    y envasado ocurren después de terminar la fermentación).
+  - T7b — Persistencia: migración `0008` (`lab_analyses`, `lab_results`), repositorio.
+  - T7c — Casos de uso y API: `POST|GET /batches/{id}/lab-analyses` (filtro `stage`, orden por
+    `sampled_at`), `GET /lab-analyses/{id}`; `404` en `batch_id` / `analysis_id`.
+  - Fuera de alcance: editar o borrar un análisis, parámetros derivados por fórmula, UI.
 
 ## Criterios de aceptación
 - Crear un lote activo en tank-1 con rango de temperatura que el simulador no cumple genera una
@@ -176,6 +209,81 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   (verificado por el orquestador). Bundle principal 96.5 kB gzip. Smoke contra la API real: las
   formas de respuesta coinciden con los tipos. Sin verificación visual en navegador (queda para T5).
   Restos del smoke en la base dev: un lote finalizado y uno planificado en tank-1 (no hay DELETE).
+- T6 — Especificaciones de calidad (rama `feat/quality-specs` desde `main` `d9387dc`). Motivación: las
+  planillas de laboratorio de una cervecería industrial controlan la calidad por etapa (cocimiento, fin
+  de reposo, filtración, producto terminado) con especificaciones de dos niveles (rango interno dentro
+  de un límite de aceptación, a veces con objetivo). Línea base: `559 passed`.
+  - T6a completada. Dominio `quality.py`: `QualityStage`, `QualityParameter` (22 parámetros con
+    unidad y límites físicos), `SpecRange` (inclusivo; `<` y `≤` se guardan igual, documentado),
+    `QualitySpec` (interno ⊂ aceptación, objetivo dentro del rango más estrecho, `evaluate`),
+    `QualityProfile` (una especificación por etapa y parámetro, ordenadas por etapa). Evidencia TDD:
+    RED `ImportError ... InvalidQualityError`; GREEN `47 passed`. mypy marcó `StrEnum(object)`:
+    corregido validando `str` antes de construir el enum.
+  - T6b completada. Migración `0006` (`quality_profiles` con índice único `lower(name)`;
+    `quality_specs` con PK (perfil, etapa, parámetro), FK en cascada, `CHECK` de etapa y de aceptación
+    no vacía; el parámetro no se restringe en la base porque el catálogo vive en el dominio),
+    `SqlAlchemyQualityProfileRepository` (nombre duplicado → `DuplicateQualityProfileError`; FK →
+    `QualityProfileNotFoundError`), casos de uso y rutas en `quality_router.py`; errores `404`
+    (`profile_id`, `spec`), `409` (`name`), `422` con el campo (`internal.min`, `values.ph`); CORS con
+    `PUT` y `DELETE`. Evidencia TDD: RED `ImportError ... SqlAlchemyQualityProfileRepository`, luego
+    `TypeError: 'function' object is not subscriptable` (el método `list` tapaba al builtin en la
+    anotación; se movió `_load` antes); GREEN `15 passed`. Casos de uso: RED `ImportError ...
+    CreateQualityProfile`; GREEN `9 passed`. API: RED `ImportError ... get_create_quality_profile`,
+    CORS `assert '400' == '200'`, campo `assert 'ph' == 'values.ph'`; GREEN `12 passed` y `15 passed`.
+    Suite completa `638 passed`; ruff/format/mypy OK. Smoke contra el stack dev (migración a `0006`):
+    alta de perfil, `PUT` de pH en `bright_beer`, evaluación `ph 4.6 → warning`, `color → no_spec`,
+    preflight `PUT` 200, `DELETE` 204, nombre repetido 409.
+  - T6c completada (rama `feat/quality-profile-templates` sobre `feat/quality-specs`). `QualityTemplate`
+    (`pale_lager`) con 29 especificaciones ilustrativas de manual en las cuatro etapas;
+    `CreateQualityProfile` acepta `template`; `GET /quality-profile-templates`. Evidencia TDD: dominio
+    RED `ImportError ... QualityTemplate`, GREEN `51 passed`; caso de uso RED `TypeError: execute() takes
+    3 positional arguments but 4 were given`, luego un fallo de la propia prueba (comparaba en orden y el
+    perfil ordena por etapa: se compara como conjunto), GREEN `12 passed`; API RED `404 == 200` y
+    `KeyError`, GREEN `15 passed` (la prueba de plantilla desconocida ya pasaba por `extra="forbid"`; tras
+    el cambio pasa porque el valor no es una plantilla válida). Suite completa: una corrida con
+    `2 failed` sin identificar (la salida quedó truncada) y luego tres seguidas con `647 passed`;
+    posiblemente el flaky de `TRUNCATE` registrado en Trabajo futuro, no confirmado. ruff/format/mypy OK.
+    Smoke dev: perfil desde plantilla con 29 especificaciones en 4 etapas; evaluación en `packaged`:
+    ABV 4.9 `in_spec`, diacetilo 42 `warning`, espuma 190 `out_of_spec`.
+  - T6d completada (rama `feat/batch-quality-profile` sobre `feat/quality-profile-templates`).
+    `Batch.quality_profile_id` (UUID opcional, editable); migración `0007` (columna nula con FK
+    `fk_batches_quality_profile_id`); `CreateBatch` y `UpdateBatch` reciben el repositorio de perfiles y
+    verifican que exista (en la edición, solo si el perfil cambia y después de la regla de lote
+    terminado, que sigue dando `409` primero); el repositorio de lotes traduce la FK a
+    `QualityProfileNotFoundError`, que ahora lleva el campo de la petición (`profile_id` por defecto,
+    `quality_profile_id` desde lotes). `BatchOut` y `ActiveBatchOut` exponen el campo (las dos pruebas
+    de forma exacta de la respuesta se actualizaron a propósito). Evidencia TDD: dominio RED
+    `AttributeError/TypeError ... quality_profile_id` y `cannot be edited`, GREEN `50 passed`;
+    persistencia RED (no se guardaba, `DID NOT RAISE`, columna inexistente), GREEN `19 passed`; casos de
+    uso RED `TypeError: CreateBatch.__init__() takes from 4 to 5 positional arguments`, GREEN
+    `30 passed`; API RED 7 pruebas, GREEN `85 passed` en `http/`. Suite completa `665 passed` tres veces
+    seguidas; ruff/format/mypy OK (ruff ordenó un import de una prueba). Smoke dev (migración a `0007`):
+    lote creado con perfil, visible en `active_batch` de `/tanks`, perfil desconocido `404` en
+    `quality_profile_id`, `null` lo quita (versión 3); datos del smoke borrados. La UI de lotes (#8)
+    usa interfaces TypeScript sin validación en tiempo de ejecución, así que el campo nuevo no la rompe.
+  - T7 completada (rama `feat/lab-analyses` sobre `feat/batch-quality-profile`).
+    - T7a — Dominio `lab_analysis.py`: `LabResult` (parámetro, valor plausible, estado),
+      `LabAnalysis` (resultados no vacíos y sin parámetros repetidos, ordenados por el catálogo;
+      `sampled_at` no posterior a `created_at`; analista y notas recortados) y `record_lab_analysis`
+      (lote `planned` → `InvalidBatchTransitionError`; el perfil debe ser el del lote; valores
+      inválidos con campo `values.<código>`; estados con `QualityProfile.evaluate` o `no_spec`).
+      RED `ImportError ... InvalidLabAnalysisError`; GREEN `17 passed`.
+    - T7b — Migración `0008` (`lab_analyses` con FK a lote y perfil, `CHECK` de etapa, índice
+      `(batch_id, sampled_at)`; `lab_results` con PK (análisis, parámetro), `CHECK` de estado y
+      borrado en cascada) y `SqlAlchemyLabAnalysisRepository` (FK de lote → `BatchNotFoundError`).
+      RED `ImportError ... SqlAlchemyLabAnalysisRepository`; al pasar, la limpieza de
+      `test_tanks_migration_backfills...` falló con `cannot truncate a table referenced in a foreign
+      key constraint` (truncaba `batches` sin `lab_analyses`): se agregaron las dos tablas a ese
+      `TRUNCATE` y al del fixture. GREEN `12 passed`.
+    - T7c — Casos de uso `RecordLabAnalysis` (`sampled_at` por defecto ahora), `ListLabAnalyses`,
+      `GetLabAnalysis`, y rutas en `lab_router.py`; errores `404` (`batch_id`, `analysis_id`), `409`
+      (`status`), `422` con el campo. Prueba explícita de que los estados son una foto: editar la
+      especificación después no cambia el análisis guardado. RED `ImportError ... GetLabAnalysis` y
+      `... get_get_lab_analysis`; GREEN `12 passed` y `7 passed`.
+    - Suite completa `705 passed` tres veces seguidas; ruff/format/mypy OK. Smoke dev (migración a
+      `0008`): lote planificado → `409 status`; tras iniciarlo, muestra de cocimiento con la plantilla
+      `pale_lager`: extracto 11.4 `in_spec`, pH 5.6 `out_of_spec`, O₂ 7.0 `warning`, calcio
+      `no_spec`; listado y consulta OK; datos del smoke borrados.
 
 ## Trabajo futuro
 - Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de
@@ -245,4 +353,6 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 - Entrega: push y PR del frontend (T3, T4, T5).
 
 ## Próximo paso
-Merge del PR del frontend (decisión del usuario); después, generador de reportes determinista.
+UI de lotes y alertas (#8) y T6–T7 (#10–#14) fusionados en `main`. Siguiente: generador de
+reportes determinista por lote; UI de perfiles de calidad y de carga de análisis, gráficos de
+control por parámetro; editar o borrar un análisis; parámetros derivados por fórmula.

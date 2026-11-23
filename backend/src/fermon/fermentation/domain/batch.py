@@ -96,7 +96,16 @@ def _required_text(field: str, value: object) -> str:
 
 
 _EDITABLE = frozenset(
-    {"beer_name", "style", "template", "targets", "planned_start", "expected_end", "notes"}
+    {
+        "beer_name",
+        "style",
+        "template",
+        "targets",
+        "planned_start",
+        "expected_end",
+        "notes",
+        "quality_profile_id",
+    }
 )
 
 
@@ -117,6 +126,7 @@ class Batch:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     notes: str | None = None
+    quality_profile_id: UUID | None = None  # the lab spec sheet this batch is judged against
     version: int = 1  # optimistic-concurrency token: +1 on every transition or edit
 
     def __post_init__(self) -> None:
@@ -144,6 +154,8 @@ class Batch:
         for field in ("started_at", "finished_at"):
             if getattr(self, field) is not None:
                 _aware(field, getattr(self, field))
+        if self.quality_profile_id is not None and not isinstance(self.quality_profile_id, UUID):
+            raise InvalidBatchError("quality_profile_id", "must be a UUID")
         if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
             raise InvalidBatchError("version", "must be an integer >= 1")
         self._check_lifecycle()

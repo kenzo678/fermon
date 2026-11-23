@@ -11,12 +11,14 @@ from fermon.fermentation.domain import (
     Batch,
     BatchStatus,
     ConcurrentBatchUpdateError,
+    QualityProfileNotFoundError,
     TargetRanges,
     normalize_id,
 )
 from fermon.fermentation.infrastructure.persistence.tables import batches
 
 ONE_ACTIVE_INDEX = "uq_batches_one_active_per_tank"
+QUALITY_PROFILE_FOREIGN_KEY = "fk_batches_quality_profile_id"
 
 
 class SqlAlchemyBatchRepository:
@@ -44,9 +46,13 @@ class SqlAlchemyBatchRepository:
                 result = await session.execute(statement)
                 return cast(CursorResult[Any], result).rowcount
         except IntegrityError as error:
-            # Only the one-active-per-tank index is a business conflict; anything else is a bug.
+            # Only these two constraints are business errors; anything else is a bug.
             if ONE_ACTIVE_INDEX in str(error.orig):
                 raise ActiveBatchConflictError(batch.tank_id) from None
+            if QUALITY_PROFILE_FOREIGN_KEY in str(error.orig):
+                raise QualityProfileNotFoundError(
+                    str(batch.quality_profile_id), field="quality_profile_id"
+                ) from None
             raise
 
     async def get(self, batch_id: UUID) -> Batch | None:
@@ -102,6 +108,7 @@ def _to_row(batch: Batch) -> dict[str, Any]:
         "notes": batch.notes,
         "created_at": batch.created_at,
         "version": batch.version,
+        "quality_profile_id": batch.quality_profile_id,
     }
 
 
@@ -127,4 +134,5 @@ def _to_domain(row: Any) -> Batch:
         notes=row.notes,
         created_at=row.created_at,
         version=row.version,
+        quality_profile_id=row.quality_profile_id,
     )

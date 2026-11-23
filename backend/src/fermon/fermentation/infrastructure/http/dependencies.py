@@ -16,14 +16,29 @@ from fermon.fermentation.application.batches import (
 )
 from fermon.fermentation.application.get_tank import GetTank
 from fermon.fermentation.application.ingest_reading import IngestReading
+from fermon.fermentation.application.lab_analyses import (
+    GetLabAnalysis,
+    ListLabAnalyses,
+    RecordLabAnalysis,
+)
 from fermon.fermentation.application.list_aggregated_readings import ListAggregatedReadings
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
 from fermon.fermentation.application.manage_alerts import AcknowledgeAlert, GetAlert, ListAlerts
+from fermon.fermentation.application.quality import (
+    CreateQualityProfile,
+    EvaluateQualityValues,
+    GetQualityProfile,
+    ListQualityProfiles,
+    RemoveQualitySpec,
+    SaveQualitySpec,
+)
 from fermon.fermentation.domain import AlertRules
 from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyAlertRepository,
     SqlAlchemyBatchRepository,
+    SqlAlchemyLabAnalysisRepository,
+    SqlAlchemyQualityProfileRepository,
     SqlAlchemyReadingRepository,
     SqlAlchemyTankRepository,
 )
@@ -92,12 +107,18 @@ ClockDep = Annotated[Clock, Depends(get_clock)]
 
 def get_create_batch(session_factory: SessionFactory, clock: ClockDep) -> CreateBatch:
     return CreateBatch(
-        SqlAlchemyBatchRepository(session_factory), SqlAlchemyTankRepository(session_factory), clock
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyTankRepository(session_factory),
+        SqlAlchemyQualityProfileRepository(session_factory),
+        clock,
     )
 
 
 def get_update_batch(session_factory: SessionFactory) -> UpdateBatch:
-    return UpdateBatch(SqlAlchemyBatchRepository(session_factory))
+    return UpdateBatch(
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyQualityProfileRepository(session_factory),
+    )
 
 
 def get_start_batch(session_factory: SessionFactory, clock: ClockDep) -> StartBatch:
@@ -134,6 +155,52 @@ def get_acknowledge_alert(session_factory: SessionFactory, clock: ClockDep) -> A
     return AcknowledgeAlert(SqlAlchemyAlertRepository(session_factory), clock)
 
 
+def get_record_lab_analysis(session_factory: SessionFactory, clock: ClockDep) -> RecordLabAnalysis:
+    return RecordLabAnalysis(
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyQualityProfileRepository(session_factory),
+        SqlAlchemyLabAnalysisRepository(session_factory),
+        clock,
+    )
+
+
+def get_list_lab_analyses(session_factory: SessionFactory) -> ListLabAnalyses:
+    return ListLabAnalyses(
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyLabAnalysisRepository(session_factory),
+    )
+
+
+def get_get_lab_analysis(session_factory: SessionFactory) -> GetLabAnalysis:
+    return GetLabAnalysis(SqlAlchemyLabAnalysisRepository(session_factory))
+
+
+def get_create_quality_profile(
+    session_factory: SessionFactory, clock: ClockDep
+) -> CreateQualityProfile:
+    return CreateQualityProfile(SqlAlchemyQualityProfileRepository(session_factory), clock)
+
+
+def get_list_quality_profiles(session_factory: SessionFactory) -> ListQualityProfiles:
+    return ListQualityProfiles(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_get_quality_profile(session_factory: SessionFactory) -> GetQualityProfile:
+    return GetQualityProfile(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_save_quality_spec(session_factory: SessionFactory) -> SaveQualitySpec:
+    return SaveQualitySpec(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_remove_quality_spec(session_factory: SessionFactory) -> RemoveQualitySpec:
+    return RemoveQualitySpec(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_evaluate_quality_values(session_factory: SessionFactory) -> EvaluateQualityValues:
+    return EvaluateQualityValues(SqlAlchemyQualityProfileRepository(session_factory))
+
+
 IngestReadingDep = Annotated[IngestReading, Depends(get_ingest_reading)]
 ListReadingsDep = Annotated[ListReadings, Depends(get_list_readings)]
 ListTanksDep = Annotated[ListTanks, Depends(get_list_tanks)]
@@ -150,3 +217,12 @@ ListAlertsDep = Annotated[ListAlerts, Depends(get_list_alerts)]
 GetAlertDep = Annotated[GetAlert, Depends(get_get_alert)]
 AcknowledgeAlertDep = Annotated[AcknowledgeAlert, Depends(get_acknowledge_alert)]
 AlertFeedDep = Annotated[AlertFeed, Depends(get_alert_feed)]
+CreateQualityProfileDep = Annotated[CreateQualityProfile, Depends(get_create_quality_profile)]
+ListQualityProfilesDep = Annotated[ListQualityProfiles, Depends(get_list_quality_profiles)]
+GetQualityProfileDep = Annotated[GetQualityProfile, Depends(get_get_quality_profile)]
+SaveQualitySpecDep = Annotated[SaveQualitySpec, Depends(get_save_quality_spec)]
+RemoveQualitySpecDep = Annotated[RemoveQualitySpec, Depends(get_remove_quality_spec)]
+EvaluateQualityValuesDep = Annotated[EvaluateQualityValues, Depends(get_evaluate_quality_values)]
+RecordLabAnalysisDep = Annotated[RecordLabAnalysis, Depends(get_record_lab_analysis)]
+ListLabAnalysesDep = Annotated[ListLabAnalyses, Depends(get_list_lab_analyses)]
+GetLabAnalysisDep = Annotated[GetLabAnalysis, Depends(get_get_lab_analysis)]

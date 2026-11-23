@@ -11,7 +11,12 @@ from fermon.fermentation.domain import (
     AlertStatus,
     Batch,
     BatchStatus,
+    LabAnalysis,
     MeasurementType,
+    QualityParameter,
+    QualityProfile,
+    QualitySpec,
+    QualityStage,
     Reading,
     Tank,
 )
@@ -91,6 +96,52 @@ class TankRepository(Protocol):
 
     async def list(self) -> list[Tank]:
         """All registered tanks, sorted by id."""
+        ...
+
+
+class LabAnalysisRepository(Protocol):
+    async def add(self, analysis: LabAnalysis) -> None:
+        """Store a new analysis with its results. Raises BatchNotFoundError for an unknown batch."""
+        ...
+
+    async def get(self, analysis_id: UUID) -> LabAnalysis | None:
+        """The analysis with this id, if any."""
+        ...
+
+    async def list_for_batch(
+        self, batch_id: UUID, stage: QualityStage | None = None
+    ) -> list[LabAnalysis]:
+        """The batch's analyses (optionally of one stage), oldest sample first."""
+        ...
+
+
+class QualityProfileRepository(Protocol):
+    async def add(self, profile: QualityProfile) -> None:
+        """Store a new profile with its specs.
+
+        Raises DuplicateQualityProfileError if another profile has the same name ignoring case.
+        """
+        ...
+
+    async def get(self, profile_id: UUID) -> QualityProfile | None:
+        """The profile with this id, with its specs, if any."""
+        ...
+
+    async def list(self) -> list[QualityProfile]:
+        """Every profile with its specs, ordered by name ignoring case."""
+        ...
+
+    async def save_spec(self, profile_id: UUID, spec: QualitySpec) -> None:
+        """Insert or replace the profile's spec for ``spec``'s stage and parameter.
+
+        Raises QualityProfileNotFoundError if the profile does not exist.
+        """
+        ...
+
+    async def delete_spec(
+        self, profile_id: UUID, stage: QualityStage, parameter: QualityParameter
+    ) -> bool:
+        """Remove that spec; False if there was none."""
         ...
 
 

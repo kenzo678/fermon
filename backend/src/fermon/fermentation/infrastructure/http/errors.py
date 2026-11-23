@@ -1,3 +1,5 @@
+from collections.abc import Awaitable, Callable
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -9,13 +11,19 @@ from fermon.fermentation.domain import (
     ConcurrentAlertUpdateError,
     ConcurrentBatchUpdateError,
     DomainError,
+    DuplicateQualityProfileError,
     InvalidAlertError,
     InvalidAlertTransitionError,
     InvalidBatchError,
     InvalidBatchTransitionError,
     InvalidIdentifierError,
+    InvalidLabAnalysisError,
+    InvalidQualityError,
     InvalidReadingError,
     InvalidTankError,
+    LabAnalysisNotFoundError,
+    QualityProfileNotFoundError,
+    QualitySpecNotFoundError,
     TankNotFoundError,
 )
 
@@ -38,7 +46,9 @@ async def domain_error_handler(_: Request, exc: Exception) -> JSONResponse:
             | InvalidIdentifierError
             | InvalidTankError
             | InvalidBatchError
-            | InvalidAlertError,
+            | InvalidAlertError
+            | InvalidQualityError
+            | InvalidLabAnalysisError,
         )
         else None
     )
@@ -66,6 +76,35 @@ async def alert_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
         content={"detail": [{"field": "alert_id", "message": str(exc)}]},
+    )
+
+
+def _not_found(field: str) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
+    """A handler mapping an exception to 404 on ``field`` with the unified error shape."""
+
+    async def handler(_: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": [{"field": field, "message": str(exc)}]},
+        )
+
+    return handler
+
+
+async def quality_profile_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Map an unknown quality profile to 404 on the request field that named it."""
+    assert isinstance(exc, QualityProfileNotFoundError)
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": [{"field": exc.field, "message": str(exc)}]},
+    )
+
+
+async def duplicate_name_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Map a quality profile name already in use to 409 on ``name``."""
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": [{"field": "name", "message": str(exc)}]},
     )
 
 
@@ -108,4 +147,8 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ConcurrentAlertUpdateError, conflict_handler)
     app.add_exception_handler(InvalidBatchTransitionError, conflict_handler)
     app.add_exception_handler(ConcurrentBatchUpdateError, conflict_handler)
+    app.add_exception_handler(QualityProfileNotFoundError, quality_profile_not_found_handler)
+    app.add_exception_handler(QualitySpecNotFoundError, _not_found("spec"))
+    app.add_exception_handler(LabAnalysisNotFoundError, _not_found("analysis_id"))
+    app.add_exception_handler(DuplicateQualityProfileError, duplicate_name_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

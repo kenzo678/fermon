@@ -145,7 +145,7 @@ async def list_batch_templates() -> list[BatchTemplateOut]:
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 async def create_batch(body: BatchIn, use_case: CreateBatchDep) -> BatchOut:
-    """Plan a batch in a registered tank.
+    """Plan a batch in a registered tank, optionally judged against a quality profile.
 
     The `template` prefills the targets; fields sent in `targets` override it. A `custom`
     template needs `temperature_min`, `temperature_max` and `pressure_max`. `planned_start`
@@ -160,6 +160,7 @@ async def create_batch(body: BatchIn, use_case: CreateBatchDep) -> BatchOut:
         planned_start=body.planned_start,
         expected_end=body.expected_end,
         notes=body.notes,
+        quality_profile_id=body.quality_profile_id,
     )
     return BatchOut.from_domain(await use_case.execute(command))
 

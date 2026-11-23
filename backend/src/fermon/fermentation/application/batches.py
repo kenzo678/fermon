@@ -6,7 +6,11 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from fermon.fermentation.application.ports import BatchRepository, TankRepository
+from fermon.fermentation.application.ports import (
+    BatchRepository,
+    QualityProfileRepository,
+    TankRepository,
+)
 from fermon.fermentation.domain import (
     ActiveBatchConflictError,
     Batch,
@@ -14,6 +18,7 @@ from fermon.fermentation.domain import (
     BatchStatus,
     ConcurrentBatchUpdateError,
     InvalidBatchError,
+    QualityProfileNotFoundError,
     StyleTemplate,
     TankNotFoundError,
     TargetRanges,
@@ -56,6 +61,13 @@ class CreateBatchCommand:
     planned_start: datetime | None = None
     expected_end: datetime | None = None
     notes: str | None = None
+    quality_profile_id: UUID | None = None
+
+
+async def _require_profile(profiles: QualityProfileRepository, profile_id: UUID | None) -> None:
+    """Reject a link to a quality profile that does not exist (no link is always fine)."""
+    if profile_id is not None and await profiles.get(profile_id) is None:
+        raise QualityProfileNotFoundError(str(profile_id), field="quality_profile_id")
 
 
 class CreateBatch:
@@ -63,11 +75,13 @@ class CreateBatch:
         self,
         batches: BatchRepository,
         tanks: TankRepository,
+        profiles: QualityProfileRepository,
         clock: Clock,
         new_id: Callable[[], UUID] = uuid4,
     ) -> None:
         self._batches = batches
         self._tanks = tanks
+        self._profiles = profiles
         self._clock = clock
         self._new_id = new_id
 
@@ -91,8 +105,10 @@ class CreateBatch:
             planned_start=command.planned_start or now,
             expected_end=command.expected_end,
             notes=command.notes,
+            quality_profile_id=command.quality_profile_id,
             created_at=now,
         )
+        await _require_profile(self._profiles, batch.quality_profile_id)
         await self._batches.add(batch)
         return batch
 
@@ -105,8 +121,9 @@ async def _load(batches: BatchRepository, batch_id: UUID) -> Batch:
 
 
 class UpdateBatch:
-    def __init__(self, batches: BatchRepository) -> None:
+    def __init__(self, batches: BatchRepository, profiles: QualityProfileRepository) -> None:
         self._batches = batches
+        self._profiles = profiles
 
     async def execute(
         self, batch_id: UUID, changes: Mapping[str, Any], expected_version: int | None = None
@@ -126,6 +143,8 @@ class UpdateBatch:
             # Nothing actually changed (empty patch, null/empty targets, identical values): don't
             # write, so other clients' versions stay valid.
             return batch
+        if updated.quality_profile_id != batch.quality_profile_id:
+            await _require_profile(self._profiles, updated.quality_profile_id)
         await self._batches.update(updated)
         return updated
 

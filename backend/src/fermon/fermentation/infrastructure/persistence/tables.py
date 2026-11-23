@@ -71,6 +71,12 @@ batches = Table(
     Column("notes", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("version", Integer, nullable=False, server_default=text("1")),
+    Column(
+        "quality_profile_id",
+        Uuid,
+        ForeignKey("quality_profiles.id", name="fk_batches_quality_profile_id"),
+        nullable=True,
+    ),
     CheckConstraint("status IN ('planned', 'active', 'finished')", name="ck_batches_status"),
     CheckConstraint("template IN ('ale', 'lager', 'custom')", name="ck_batches_template"),
     Index(
@@ -115,6 +121,90 @@ alerts = Table(
         postgresql_where=text("status <> 'resolved'"),
     ),
     Index("ix_alerts_status_opened_at", "status", desc("opened_at")),
+)
+
+lab_analyses = Table(
+    "lab_analyses",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column(
+        "batch_id",
+        Uuid,
+        ForeignKey("batches.id", name="fk_lab_analyses_batch_id"),
+        nullable=False,
+    ),
+    Column("stage", Text, nullable=False),
+    Column("sampled_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("analyst", Text, nullable=True),
+    Column("notes", Text, nullable=True),
+    # The profile the statuses were judged against when recorded (a snapshot, not a live link).
+    Column(
+        "quality_profile_id",
+        Uuid,
+        ForeignKey("quality_profiles.id", name="fk_lab_analyses_quality_profile_id"),
+        nullable=True,
+    ),
+    CheckConstraint(
+        "stage IN ('brewhouse', 'maturation', 'bright_beer', 'packaged')",
+        name="ck_lab_analyses_stage",
+    ),
+    Index("ix_lab_analyses_batch_id_sampled_at", "batch_id", "sampled_at"),
+)
+
+lab_results = Table(
+    "lab_results",
+    metadata,
+    Column(
+        "analysis_id",
+        Uuid,
+        ForeignKey("lab_analyses.id", name="fk_lab_results_analysis_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("parameter", Text, primary_key=True),
+    Column("value", Double, nullable=False),
+    Column("status", Text, nullable=False),
+    CheckConstraint(
+        "status IN ('in_spec', 'warning', 'out_of_spec', 'no_spec')", name="ck_lab_results_status"
+    ),
+)
+
+quality_profiles = Table(
+    "quality_profiles",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    # Names are unique ignoring case, so "Pale lager" and "PALE LAGER" cannot coexist.
+    Index("uq_quality_profiles_name", text("lower(name)"), unique=True),
+)
+
+quality_specs = Table(
+    "quality_specs",
+    metadata,
+    Column(
+        "profile_id",
+        Uuid,
+        ForeignKey("quality_profiles.id", name="fk_quality_specs_profile_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("stage", Text, primary_key=True),
+    # Not constrained in the database: the parameter catalog lives in the domain and may grow.
+    Column("parameter", Text, primary_key=True),
+    Column("target", Double, nullable=True),
+    Column("internal_min", Double, nullable=True),
+    Column("internal_max", Double, nullable=True),
+    Column("acceptance_min", Double, nullable=True),
+    Column("acceptance_max", Double, nullable=True),
+    CheckConstraint(
+        "stage IN ('brewhouse', 'maturation', 'bright_beer', 'packaged')",
+        name="ck_quality_specs_stage",
+    ),
+    CheckConstraint(
+        "acceptance_min IS NOT NULL OR acceptance_max IS NOT NULL",
+        name="ck_quality_specs_acceptance",
+    ),
 )
 
 

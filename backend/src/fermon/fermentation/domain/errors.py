@@ -159,6 +159,23 @@ class DuplicateQualityProfileError(DomainError):
         self.name = name
 
 
+class InvalidLabAnalysisError(DomainError):
+    """Raised when a lab analysis (or one of its values) violates a domain invariant."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(f"invalid {field}: {message}")
+        self.field = field
+        self.reason = message
+
+
+class LabAnalysisNotFoundError(DomainError):
+    """Raised when a lab analysis that was asked for does not exist."""
+
+    def __init__(self, analysis_id: str) -> None:
+        super().__init__(f"lab analysis '{analysis_id}' not found")
+        self.analysis_id = analysis_id
+
+
 class ConcurrentAlertUpdateError(DomainError):
     """Raised when an alert changed since it was read, so writing the stale copy would lose data."""
 

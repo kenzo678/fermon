@@ -123,6 +123,52 @@ alerts = Table(
     Index("ix_alerts_status_opened_at", "status", desc("opened_at")),
 )
 
+lab_analyses = Table(
+    "lab_analyses",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column(
+        "batch_id",
+        Uuid,
+        ForeignKey("batches.id", name="fk_lab_analyses_batch_id"),
+        nullable=False,
+    ),
+    Column("stage", Text, nullable=False),
+    Column("sampled_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("analyst", Text, nullable=True),
+    Column("notes", Text, nullable=True),
+    # The profile the statuses were judged against when recorded (a snapshot, not a live link).
+    Column(
+        "quality_profile_id",
+        Uuid,
+        ForeignKey("quality_profiles.id", name="fk_lab_analyses_quality_profile_id"),
+        nullable=True,
+    ),
+    CheckConstraint(
+        "stage IN ('brewhouse', 'maturation', 'bright_beer', 'packaged')",
+        name="ck_lab_analyses_stage",
+    ),
+    Index("ix_lab_analyses_batch_id_sampled_at", "batch_id", "sampled_at"),
+)
+
+lab_results = Table(
+    "lab_results",
+    metadata,
+    Column(
+        "analysis_id",
+        Uuid,
+        ForeignKey("lab_analyses.id", name="fk_lab_results_analysis_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("parameter", Text, primary_key=True),
+    Column("value", Double, nullable=False),
+    Column("status", Text, nullable=False),
+    CheckConstraint(
+        "status IN ('in_spec', 'warning', 'out_of_spec', 'no_spec')", name="ck_lab_results_status"
+    ),
+)
+
 quality_profiles = Table(
     "quality_profiles",
     metadata,

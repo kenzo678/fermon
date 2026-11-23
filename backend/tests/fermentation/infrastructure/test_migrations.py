@@ -96,7 +96,9 @@ async def test_tanks_migration_backfills_tanks_from_existing_readings(
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")
         async with engine.begin() as conn:
-            await conn.execute(text("TRUNCATE readings, tanks, batches, alerts"))
+            await conn.execute(
+                text("TRUNCATE readings, tanks, batches, alerts, lab_analyses, lab_results")
+            )
         await engine.dispose()
 
 
@@ -238,6 +240,33 @@ async def test_batch_quality_profile_migration_adds_the_link_and_drops_it_on_dow
         async with engine.connect() as conn:
             assert await conn.scalar(column) is None
             assert await conn.scalar(foreign_key) is None
+            assert await conn.scalar(text("SELECT to_regclass('public.batches')")) is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_lab_analyses_migration_creates_both_tables_and_drops_them_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    analyses = text("SELECT to_regclass('public.lab_analyses')")
+    results = text("SELECT to_regclass('public.lab_results')")
+    index = text(
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_lab_analyses_batch_id_sampled_at'"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert await conn.scalar(analyses) is not None
+            assert await conn.scalar(results) is not None
+            definition = await conn.scalar(index)
+        assert definition is not None and "batch_id, sampled_at" in definition
+
+        await asyncio.to_thread(command.downgrade, config, "0007")
+        async with engine.connect() as conn:
+            assert await conn.scalar(analyses) is None
+            assert await conn.scalar(results) is None
             assert await conn.scalar(text("SELECT to_regclass('public.batches')")) is not None
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")

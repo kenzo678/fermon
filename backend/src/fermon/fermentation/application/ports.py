@@ -11,6 +11,7 @@ from fermon.fermentation.domain import (
     AlertStatus,
     Batch,
     BatchStatus,
+    LabAnalysis,
     MeasurementType,
     QualityParameter,
     QualityProfile,
@@ -95,6 +96,22 @@ class TankRepository(Protocol):
 
     async def list(self) -> list[Tank]:
         """All registered tanks, sorted by id."""
+        ...
+
+
+class LabAnalysisRepository(Protocol):
+    async def add(self, analysis: LabAnalysis) -> None:
+        """Store a new analysis with its results. Raises BatchNotFoundError for an unknown batch."""
+        ...
+
+    async def get(self, analysis_id: UUID) -> LabAnalysis | None:
+        """The analysis with this id, if any."""
+        ...
+
+    async def list_for_batch(
+        self, batch_id: UUID, stage: QualityStage | None = None
+    ) -> list[LabAnalysis]:
+        """The batch's analyses (optionally of one stage), oldest sample first."""
         ...
 
 

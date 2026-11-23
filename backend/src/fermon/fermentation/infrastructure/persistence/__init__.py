@@ -4,6 +4,9 @@ from fermon.fermentation.infrastructure.persistence.alert_repository import (
 from fermon.fermentation.infrastructure.persistence.batch_repository import (
     SqlAlchemyBatchRepository,
 )
+from fermon.fermentation.infrastructure.persistence.lab_analysis_repository import (
+    SqlAlchemyLabAnalysisRepository,
+)
 from fermon.fermentation.infrastructure.persistence.quality_repository import (
     SqlAlchemyQualityProfileRepository,
 )
@@ -13,6 +16,8 @@ from fermon.fermentation.infrastructure.persistence.reading_repository import (
 from fermon.fermentation.infrastructure.persistence.tables import (
     alerts,
     batches,
+    lab_analyses,
+    lab_results,
     metadata,
     quality_profiles,
     quality_specs,
@@ -27,6 +32,9 @@ __all__ = [
     "SqlAlchemyAlertRepository",
     "alerts",
     "SqlAlchemyBatchRepository",
+    "SqlAlchemyLabAnalysisRepository",
+    "lab_analyses",
+    "lab_results",
     "SqlAlchemyQualityProfileRepository",
     "SqlAlchemyReadingRepository",
     "quality_profiles",

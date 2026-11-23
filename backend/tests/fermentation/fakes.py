@@ -10,10 +10,12 @@ from fermon.fermentation.domain import (
     AlertKind,
     AlertStatus,
     Batch,
+    BatchNotFoundError,
     BatchStatus,
     ConcurrentAlertUpdateError,
     ConcurrentBatchUpdateError,
     DuplicateQualityProfileError,
+    LabAnalysis,
     MeasurementType,
     QualityParameter,
     QualityProfile,
@@ -278,3 +280,29 @@ class InMemoryQualityProfileRepository:
             return False
         self.profiles[profile_id] = profile.without_spec(stage, parameter)
         return True
+
+
+class InMemoryLabAnalysisRepository:
+    """Mirrors the SQL adapter: batch-scoped listing by sample time, then record time."""
+
+    def __init__(self, batches: "InMemoryBatchRepository") -> None:
+        self.analyses: dict[UUID, LabAnalysis] = {}
+        self._batches = batches
+
+    async def add(self, analysis: LabAnalysis) -> None:
+        if analysis.batch_id not in self._batches.batches:
+            raise BatchNotFoundError(str(analysis.batch_id))
+        self.analyses[analysis.id] = analysis
+
+    async def get(self, analysis_id: UUID) -> LabAnalysis | None:
+        return self.analyses.get(analysis_id)
+
+    async def list_for_batch(
+        self, batch_id: UUID, stage: QualityStage | None = None
+    ) -> list[LabAnalysis]:
+        found = [
+            a
+            for a in self.analyses.values()
+            if a.batch_id == batch_id and (stage is None or a.stage is stage)
+        ]
+        return sorted(found, key=lambda a: (a.sampled_at, a.created_at, a.id))

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from fermon.fermentation.infrastructure.http.errors import register_error_handlers
+from fermon.fermentation.infrastructure.http.lab_router import router as lab_router
 from fermon.fermentation.infrastructure.http.quality_router import router as quality_router
 from fermon.fermentation.infrastructure.http.router import router as fermentation_router
 from fermon.fermentation.infrastructure.http.websocket import router as websocket_router
@@ -46,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
     app.include_router(fermentation_router)
     app.include_router(quality_router)
+    app.include_router(lab_router)
     app.include_router(websocket_router)
 
     @app.get("/health")

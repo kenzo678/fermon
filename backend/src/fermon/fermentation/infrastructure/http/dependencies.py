@@ -16,6 +16,11 @@ from fermon.fermentation.application.batches import (
 )
 from fermon.fermentation.application.get_tank import GetTank
 from fermon.fermentation.application.ingest_reading import IngestReading
+from fermon.fermentation.application.lab_analyses import (
+    GetLabAnalysis,
+    ListLabAnalyses,
+    RecordLabAnalysis,
+)
 from fermon.fermentation.application.list_aggregated_readings import ListAggregatedReadings
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
@@ -32,6 +37,7 @@ from fermon.fermentation.domain import AlertRules
 from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyAlertRepository,
     SqlAlchemyBatchRepository,
+    SqlAlchemyLabAnalysisRepository,
     SqlAlchemyQualityProfileRepository,
     SqlAlchemyReadingRepository,
     SqlAlchemyTankRepository,
@@ -149,6 +155,26 @@ def get_acknowledge_alert(session_factory: SessionFactory, clock: ClockDep) -> A
     return AcknowledgeAlert(SqlAlchemyAlertRepository(session_factory), clock)
 
 
+def get_record_lab_analysis(session_factory: SessionFactory, clock: ClockDep) -> RecordLabAnalysis:
+    return RecordLabAnalysis(
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyQualityProfileRepository(session_factory),
+        SqlAlchemyLabAnalysisRepository(session_factory),
+        clock,
+    )
+
+
+def get_list_lab_analyses(session_factory: SessionFactory) -> ListLabAnalyses:
+    return ListLabAnalyses(
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyLabAnalysisRepository(session_factory),
+    )
+
+
+def get_get_lab_analysis(session_factory: SessionFactory) -> GetLabAnalysis:
+    return GetLabAnalysis(SqlAlchemyLabAnalysisRepository(session_factory))
+
+
 def get_create_quality_profile(
     session_factory: SessionFactory, clock: ClockDep
 ) -> CreateQualityProfile:
@@ -197,3 +223,6 @@ GetQualityProfileDep = Annotated[GetQualityProfile, Depends(get_get_quality_prof
 SaveQualitySpecDep = Annotated[SaveQualitySpec, Depends(get_save_quality_spec)]
 RemoveQualitySpecDep = Annotated[RemoveQualitySpec, Depends(get_remove_quality_spec)]
 EvaluateQualityValuesDep = Annotated[EvaluateQualityValues, Depends(get_evaluate_quality_values)]
+RecordLabAnalysisDep = Annotated[RecordLabAnalysis, Depends(get_record_lab_analysis)]
+ListLabAnalysesDep = Annotated[ListLabAnalyses, Depends(get_list_lab_analyses)]
+GetLabAnalysisDep = Annotated[GetLabAnalysis, Depends(get_get_lab_analysis)]

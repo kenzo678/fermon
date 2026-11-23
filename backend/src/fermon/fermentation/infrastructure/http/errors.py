@@ -17,9 +17,11 @@ from fermon.fermentation.domain import (
     InvalidBatchError,
     InvalidBatchTransitionError,
     InvalidIdentifierError,
+    InvalidLabAnalysisError,
     InvalidQualityError,
     InvalidReadingError,
     InvalidTankError,
+    LabAnalysisNotFoundError,
     QualityProfileNotFoundError,
     QualitySpecNotFoundError,
     TankNotFoundError,
@@ -45,7 +47,8 @@ async def domain_error_handler(_: Request, exc: Exception) -> JSONResponse:
             | InvalidTankError
             | InvalidBatchError
             | InvalidAlertError
-            | InvalidQualityError,
+            | InvalidQualityError
+            | InvalidLabAnalysisError,
         )
         else None
     )
@@ -146,5 +149,6 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ConcurrentBatchUpdateError, conflict_handler)
     app.add_exception_handler(QualityProfileNotFoundError, quality_profile_not_found_handler)
     app.add_exception_handler(QualitySpecNotFoundError, _not_found("spec"))
+    app.add_exception_handler(LabAnalysisNotFoundError, _not_found("analysis_id"))
     app.add_exception_handler(DuplicateQualityProfileError, duplicate_name_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

@@ -72,6 +72,20 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   `PATCH`; `404` en `quality_profile_id` si el perfil no existe; visible en `BatchOut` y en
   `active_batch` de `/tanks`. Rama `feat/batch-quality-profile` encadenada sobre
   `feat/quality-profile-templates`.
+- [x] T7 — Análisis de laboratorio por etapa (backend), la parte "cargado" de la tesis. Un análisis es una
+  muestra de un lote en una etapa: momento de muestreo, analista y notas opcionales, y uno o más valores
+  por parámetro. Al registrarlo, cada valor se evalúa contra el perfil del lote y el estado
+  (`in_spec`/`warning`/`out_of_spec`/`no_spec`) se **guarda** junto con el perfil usado: es el registro de
+  calidad de ese momento y no cambia si después se editan las especificaciones. Rama `feat/lab-analyses`
+  encadenada sobre `feat/batch-quality-profile`.
+  - T7a — Dominio: `LabResult`, `LabAnalysis` (al menos un valor, parámetros sin repetir, valores
+    plausibles con campo `values.<parámetro>`, `sampled_at` no posterior al registro) y su creación desde
+    un lote: un lote `planned` no tiene análisis (`409` en `status`); `active` y `finished` sí (filtración
+    y envasado ocurren después de terminar la fermentación).
+  - T7b — Persistencia: migración `0008` (`lab_analyses`, `lab_results`), repositorio.
+  - T7c — Casos de uso y API: `POST|GET /batches/{id}/lab-analyses` (filtro `stage`, orden por
+    `sampled_at`), `GET /lab-analyses/{id}`; `404` en `batch_id` / `analysis_id`.
+  - Fuera de alcance: editar o borrar un análisis, parámetros derivados por fórmula, UI.
 
 ## Criterios de aceptación
 - Crear un lote activo en tank-1 con rango de temperatura que el simulador no cumple genera una
@@ -232,6 +246,29 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
     lote creado con perfil, visible en `active_batch` de `/tanks`, perfil desconocido `404` en
     `quality_profile_id`, `null` lo quita (versión 3); datos del smoke borrados. La UI de lotes (#8)
     usa interfaces TypeScript sin validación en tiempo de ejecución, así que el campo nuevo no la rompe.
+  - T7 completada (rama `feat/lab-analyses` sobre `feat/batch-quality-profile`).
+    - T7a — Dominio `lab_analysis.py`: `LabResult` (parámetro, valor plausible, estado),
+      `LabAnalysis` (resultados no vacíos y sin parámetros repetidos, ordenados por el catálogo;
+      `sampled_at` no posterior a `created_at`; analista y notas recortados) y `record_lab_analysis`
+      (lote `planned` → `InvalidBatchTransitionError`; el perfil debe ser el del lote; valores
+      inválidos con campo `values.<código>`; estados con `QualityProfile.evaluate` o `no_spec`).
+      RED `ImportError ... InvalidLabAnalysisError`; GREEN `17 passed`.
+    - T7b — Migración `0008` (`lab_analyses` con FK a lote y perfil, `CHECK` de etapa, índice
+      `(batch_id, sampled_at)`; `lab_results` con PK (análisis, parámetro), `CHECK` de estado y
+      borrado en cascada) y `SqlAlchemyLabAnalysisRepository` (FK de lote → `BatchNotFoundError`).
+      RED `ImportError ... SqlAlchemyLabAnalysisRepository`; al pasar, la limpieza de
+      `test_tanks_migration_backfills...` falló con `cannot truncate a table referenced in a foreign
+      key constraint` (truncaba `batches` sin `lab_analyses`): se agregaron las dos tablas a ese
+      `TRUNCATE` y al del fixture. GREEN `12 passed`.
+    - T7c — Casos de uso `RecordLabAnalysis` (`sampled_at` por defecto ahora), `ListLabAnalyses`,
+      `GetLabAnalysis`, y rutas en `lab_router.py`; errores `404` (`batch_id`, `analysis_id`), `409`
+      (`status`), `422` con el campo. Prueba explícita de que los estados son una foto: editar la
+      especificación después no cambia el análisis guardado. RED `ImportError ... GetLabAnalysis` y
+      `... get_get_lab_analysis`; GREEN `12 passed` y `7 passed`.
+    - Suite completa `705 passed` tres veces seguidas; ruff/format/mypy OK. Smoke dev (migración a
+      `0008`): lote planificado → `409 status`; tras iniciarlo, muestra de cocimiento con la plantilla
+      `pale_lager`: extracto 11.4 `in_spec`, pH 5.6 `out_of_spec`, O₂ 7.0 `warning`, calcio
+      `no_spec`; listado y consulta OK; datos del smoke borrados.
 
 ## Trabajo futuro
 - Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de
@@ -239,6 +276,6 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 
 ## Próximo paso
 Merge del PR de la UI de lotes y alertas (#8, decisión del usuario). T6 en `feat/quality-specs`:
-commits y PR (decisión del usuario); T6c (#11) y T6d encadenados encima. Después: análisis de
-laboratorio por etapa de un lote, evaluados contra su perfil (con parámetros derivados por fórmula), y
-su UI.
+commits y PR (decisión del usuario); T6c (#11), T6d (#12) y T7 encadenados encima. Después: UI de
+perfiles de calidad y de carga de análisis, gráficos de control por parámetro; editar o borrar un
+análisis; parámetros derivados por fórmula.

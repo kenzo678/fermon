@@ -276,8 +276,36 @@ curl -X POST localhost:8000/quality-profiles/<id>/evaluate -H 'Content-Type: app
 # -> ph: "warning", color: "no_spec"
 ```
 
-Un lote se asocia a un perfil con `quality_profile_id` (ver Lotes). Todavía no se guardan análisis
-de laboratorio: es el paso siguiente.
+Un lote se asocia a un perfil con `quality_profile_id` (ver Lotes), y sus análisis de laboratorio se
+evalúan contra ese perfil (ver la sección siguiente).
+
+## Análisis de laboratorio
+
+Un análisis es una muestra de un lote en una etapa (`stage`): momento de muestreo (`sampled_at`, por
+defecto ahora y nunca en el futuro), analista y notas opcionales, y uno o más valores por parámetro del
+catálogo. Al registrarlo, cada valor se evalúa contra el perfil de calidad del lote y el estado se
+**guarda** con el valor (`in_spec`, `warning`, `out_of_spec`, o `no_spec` si el perfil no especifica ese
+parámetro en esa etapa o el lote no tiene perfil), junto con el perfil usado. Es el registro de calidad
+de ese momento: editar después las especificaciones no cambia los análisis ya guardados. Un lote
+`planned` todavía no tiene análisis (`409` en `status`); uno `active` o `finished` sí, porque la
+filtración y el envasado ocurren después de la fermentación. Migración `0008`.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `POST /batches/{id}/lab-analyses` | `201` con los resultados evaluados; `404` (`batch_id`); `409` (`status`) si el lote está planificado; `422` con el campo (`values.ph`, `values.<código desconocido>`, `sampled_at`, …) |
+| `GET /batches/{id}/lab-analyses?stage=` | Análisis del lote, la muestra más antigua primero; filtro opcional por etapa |
+| `GET /lab-analyses/{id}` | Un análisis; `404` (`analysis_id`) |
+
+```sh
+curl -X POST localhost:8000/batches/<id>/lab-analyses -H 'Content-Type: application/json' -d '{
+  "stage": "brewhouse", "analyst": "M. Ruiz",
+  "values": {"original_extract": 11.4, "ph": 5.6, "wort_oxygen": 7.0}
+}'
+# -> original_extract: "in_spec", ph: "out_of_spec", wort_oxygen: "warning" (con la plantilla pale_lager)
+```
+
+Todavía no se puede editar ni borrar un análisis (una corrección se registra como un análisis nuevo), y
+los parámetros derivados por fórmula (p. ej. color = absorbancia × 25) se cargan ya calculados.
 
 ## Alertas
 

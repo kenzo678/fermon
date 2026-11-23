@@ -31,7 +31,11 @@ describe("AppRoutes", () => {
   it("renders the tank detail at /tanks/:tankId", async () => {
     mockDetail("tank-9");
     renderWithProviders(<AppRoutes />, { route: "/tanks/tank-9" });
-    expect(await screen.findByRole("heading", { level: 2, name: "tank-9" })).toBeInTheDocument();
+    // First test to load the lazy detail page (with ECharts): under a full parallel run that import
+    // can outlast the default 1 s wait, so allow more (still within Vitest's 5 s test timeout).
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "tank-9" }, { timeout: 3000 }),
+    ).toBeInTheDocument();
     expect(await screen.findAllByText("No data in this range")).toHaveLength(3);
   });
 

@@ -40,16 +40,19 @@ from fermon.fermentation.domain.errors import (
     InvalidBatchError,
     InvalidBatchTransitionError,
     InvalidIdentifierError,
+    InvalidLabAnalysisError,
     InvalidQualityError,
     InvalidReadingError,
     InvalidTankError,
     InvalidTimeRangeError,
+    LabAnalysisNotFoundError,
     QualityProfileNotFoundError,
     QualitySpecNotFoundError,
     TankNotFoundError,
     TooManyPointsError,
 )
 from fermon.fermentation.domain.identifier import normalize_id
+from fermon.fermentation.domain.lab_analysis import LabAnalysis, LabResult, record_lab_analysis
 from fermon.fermentation.domain.measurement import MeasurementType
 from fermon.fermentation.domain.quality import (
     QualityParameter,
@@ -103,7 +106,12 @@ __all__ = [
     "InvalidTimeRangeError",
     "MeasurementType",
     "DuplicateQualityProfileError",
+    "InvalidLabAnalysisError",
     "InvalidQualityError",
+    "LabAnalysis",
+    "LabAnalysisNotFoundError",
+    "LabResult",
+    "record_lab_analysis",
     "QualityParameter",
     "QualityProfile",
     "QualityProfileNotFoundError",

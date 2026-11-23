@@ -20,10 +20,19 @@ from fermon.fermentation.application.list_aggregated_readings import ListAggrega
 from fermon.fermentation.application.list_readings import ListReadings
 from fermon.fermentation.application.list_tanks import ListTanks
 from fermon.fermentation.application.manage_alerts import AcknowledgeAlert, GetAlert, ListAlerts
+from fermon.fermentation.application.quality import (
+    CreateQualityProfile,
+    EvaluateQualityValues,
+    GetQualityProfile,
+    ListQualityProfiles,
+    RemoveQualitySpec,
+    SaveQualitySpec,
+)
 from fermon.fermentation.domain import AlertRules
 from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyAlertRepository,
     SqlAlchemyBatchRepository,
+    SqlAlchemyQualityProfileRepository,
     SqlAlchemyReadingRepository,
     SqlAlchemyTankRepository,
 )
@@ -134,6 +143,32 @@ def get_acknowledge_alert(session_factory: SessionFactory, clock: ClockDep) -> A
     return AcknowledgeAlert(SqlAlchemyAlertRepository(session_factory), clock)
 
 
+def get_create_quality_profile(
+    session_factory: SessionFactory, clock: ClockDep
+) -> CreateQualityProfile:
+    return CreateQualityProfile(SqlAlchemyQualityProfileRepository(session_factory), clock)
+
+
+def get_list_quality_profiles(session_factory: SessionFactory) -> ListQualityProfiles:
+    return ListQualityProfiles(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_get_quality_profile(session_factory: SessionFactory) -> GetQualityProfile:
+    return GetQualityProfile(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_save_quality_spec(session_factory: SessionFactory) -> SaveQualitySpec:
+    return SaveQualitySpec(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_remove_quality_spec(session_factory: SessionFactory) -> RemoveQualitySpec:
+    return RemoveQualitySpec(SqlAlchemyQualityProfileRepository(session_factory))
+
+
+def get_evaluate_quality_values(session_factory: SessionFactory) -> EvaluateQualityValues:
+    return EvaluateQualityValues(SqlAlchemyQualityProfileRepository(session_factory))
+
+
 IngestReadingDep = Annotated[IngestReading, Depends(get_ingest_reading)]
 ListReadingsDep = Annotated[ListReadings, Depends(get_list_readings)]
 ListTanksDep = Annotated[ListTanks, Depends(get_list_tanks)]
@@ -150,3 +185,9 @@ ListAlertsDep = Annotated[ListAlerts, Depends(get_list_alerts)]
 GetAlertDep = Annotated[GetAlert, Depends(get_get_alert)]
 AcknowledgeAlertDep = Annotated[AcknowledgeAlert, Depends(get_acknowledge_alert)]
 AlertFeedDep = Annotated[AlertFeed, Depends(get_alert_feed)]
+CreateQualityProfileDep = Annotated[CreateQualityProfile, Depends(get_create_quality_profile)]
+ListQualityProfilesDep = Annotated[ListQualityProfiles, Depends(get_list_quality_profiles)]
+GetQualityProfileDep = Annotated[GetQualityProfile, Depends(get_get_quality_profile)]
+SaveQualitySpecDep = Annotated[SaveQualitySpec, Depends(get_save_quality_spec)]
+RemoveQualitySpecDep = Annotated[RemoveQualitySpec, Depends(get_remove_quality_spec)]
+EvaluateQualityValuesDep = Annotated[EvaluateQualityValues, Depends(get_evaluate_quality_values)]

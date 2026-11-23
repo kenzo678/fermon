@@ -179,8 +179,8 @@ unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido
 
 ### CORS
 
-`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST` y
-`PATCH`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
+`CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST`,
+`PATCH`, `PUT` y `DELETE`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
 `http://localhost:5173,http://localhost:3000`:
 
 ```sh
@@ -225,6 +225,43 @@ curl -X POST localhost:8000/batches/<id>/finish
 
 `GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
 `started_at`, `expected_end`), resuelto con una sola consulta para todos los tanques listados.
+
+## Especificaciones de calidad
+
+Además de los sensores, la calidad de la elaboración se controla con análisis de laboratorio en cuatro
+etapas (`stage`): `brewhouse` (mosto frío), `maturation` (fin de reposo), `bright_beer` (filtración,
+tanque de presión) y `packaged` (producto terminado). Un **perfil de calidad** (p. ej. "Pale lager")
+guarda, por etapa y parámetro, una especificación de dos niveles:
+
+- `acceptance`: límite de aceptación (`min` y/o `max`, inclusivos; un lado vacío es "sin límite").
+- `internal` (opcional): rango interno de operación, que debe quedar dentro de `acceptance`.
+- `target` (opcional): valor objetivo, dentro del rango más estrecho.
+
+Un valor se evalúa como `in_spec` (dentro del interno), `warning` (fuera del interno pero dentro de la
+aceptación) u `out_of_spec`; sin rango interno, la aceptación hace de interno. Los números deben estar
+dentro del rango físico del parámetro (p. ej. pH 0–14). `<` y `≤` se guardan igual (inclusivos): la
+diferencia es menor que la resolución de los instrumentos. Migración `0006`.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /quality-parameters` | Catálogo: `code`, `name`, `unit`, `minimum`, `maximum` (extractos °P, alcohol, pH, color EBC, amargor IBU, turbidez, O₂, CO₂, diacetilo, …) |
+| `POST /quality-profiles` | `201` perfil vacío; `409` (`name`) si ya existe uno con ese nombre sin distinguir mayúsculas |
+| `GET /quality-profiles` | Perfiles por nombre, con sus especificaciones |
+| `GET /quality-profiles/{id}` | Un perfil; `404` (`profile_id`) |
+| `PUT /quality-profiles/{id}/specs/{stage}/{parameter}` | Crea o reemplaza la especificación; `422` nombra el campo inválido (p. ej. `internal.min`) |
+| `DELETE /quality-profiles/{id}/specs/{stage}/{parameter}` | `204`; `404` (`spec`) si no existe |
+| `POST /quality-profiles/{id}/evaluate` | Estado de cada valor de una etapa; `no_spec` si el perfil no especifica ese parámetro allí |
+
+```sh
+curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' -d '{"name": "Pale lager"}'
+curl -X PUT localhost:8000/quality-profiles/<id>/specs/bright_beer/ph -H 'Content-Type: application/json' \
+  -d '{"acceptance": {"min": 4.15, "max": 4.65}, "internal": {"min": 4.25, "max": 4.55}}'
+curl -X POST localhost:8000/quality-profiles/<id>/evaluate -H 'Content-Type: application/json' \
+  -d '{"stage": "bright_beer", "values": {"ph": 4.6, "color": 6.1}}'
+# -> ph: "warning", color: "no_spec"
+```
+
+Todavía no se asocia un perfil a un lote ni se guardan análisis: es el paso siguiente.
 
 ## Alertas
 

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from fermon.fermentation.infrastructure.http.errors import register_error_handlers
+from fermon.fermentation.infrastructure.http.quality_router import router as quality_router
 from fermon.fermentation.infrastructure.http.router import router as fermentation_router
 from fermon.fermentation.infrastructure.http.websocket import router as websocket_router
 from fermon.fermentation.infrastructure.realtime import RealtimeBroadcaster, listen_dsn
@@ -38,12 +39,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_methods=["GET", "POST", "PATCH"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
         allow_headers=["Content-Type"],
         allow_credentials=False,
     )
     register_error_handlers(app)
     app.include_router(fermentation_router)
+    app.include_router(quality_router)
     app.include_router(websocket_router)
 
     @app.get("/health")

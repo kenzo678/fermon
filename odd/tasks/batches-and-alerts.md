@@ -53,6 +53,16 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 - [ ] T4 — UI de alertas: contador, página con filtros, "Reconocer", indicador en la tarjeta, aviso
   en vivo.
 - [ ] T5 — e2e de lotes y alertas (con el simulador forzando una desviación); PR del frontend.
+- [x] T6 — Especificaciones de calidad de laboratorio (backend), base de la carga de análisis por etapa:
+  - T6a — Dominio: etapas (`brewhouse`, `maturation`, `bright_beer`, `packaged`), catálogo de
+    parámetros (unidad y límites físicos), especificación de dos niveles (rango interno dentro del
+    límite de aceptación, objetivo opcional) con evaluación `in_spec` / `warning` / `out_of_spec`, y
+    perfil de calidad con nombre (una especificación por etapa y parámetro).
+  - T6b — Persistencia (migración `0006`, nombre de perfil único sin mayúsculas), casos de uso y API:
+    `GET /quality-parameters`, `POST|GET /quality-profiles`, `PUT|DELETE
+    /quality-profiles/{id}/specs/{stage}/{parameter}`, `POST /quality-profiles/{id}/evaluate`; CORS
+    con `PUT` y `DELETE`.
+  - Fuera de alcance: asociar perfil a lote, cargar análisis, parámetros derivados por fórmula, UI.
 
 ## Criterios de aceptación
 - Crear un lote activo en tank-1 con rango de temperatura que el simulador no cumple genera una
@@ -161,9 +171,36 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   RED: 2 failed; GREEN 559 passed; ruff/format/mypy OK.
 - Entrega: push y PR del backend (T1, T2a, T2b).
 
+- T6 — Especificaciones de calidad (rama `feat/quality-specs` desde `main` `d9387dc`). Motivación: las
+  planillas de laboratorio de una cervecería industrial controlan la calidad por etapa (cocimiento, fin
+  de reposo, filtración, producto terminado) con especificaciones de dos niveles (rango interno dentro
+  de un límite de aceptación, a veces con objetivo). Línea base: `559 passed`.
+  - T6a completada. Dominio `quality.py`: `QualityStage`, `QualityParameter` (22 parámetros con
+    unidad y límites físicos), `SpecRange` (inclusivo; `<` y `≤` se guardan igual, documentado),
+    `QualitySpec` (interno ⊂ aceptación, objetivo dentro del rango más estrecho, `evaluate`),
+    `QualityProfile` (una especificación por etapa y parámetro, ordenadas por etapa). Evidencia TDD:
+    RED `ImportError ... InvalidQualityError`; GREEN `47 passed`. mypy marcó `StrEnum(object)`:
+    corregido validando `str` antes de construir el enum.
+  - T6b completada. Migración `0006` (`quality_profiles` con índice único `lower(name)`;
+    `quality_specs` con PK (perfil, etapa, parámetro), FK en cascada, `CHECK` de etapa y de aceptación
+    no vacía; el parámetro no se restringe en la base porque el catálogo vive en el dominio),
+    `SqlAlchemyQualityProfileRepository` (nombre duplicado → `DuplicateQualityProfileError`; FK →
+    `QualityProfileNotFoundError`), casos de uso y rutas en `quality_router.py`; errores `404`
+    (`profile_id`, `spec`), `409` (`name`), `422` con el campo (`internal.min`, `values.ph`); CORS con
+    `PUT` y `DELETE`. Evidencia TDD: RED `ImportError ... SqlAlchemyQualityProfileRepository`, luego
+    `TypeError: 'function' object is not subscriptable` (el método `list` tapaba al builtin en la
+    anotación; se movió `_load` antes); GREEN `15 passed`. Casos de uso: RED `ImportError ...
+    CreateQualityProfile`; GREEN `9 passed`. API: RED `ImportError ... get_create_quality_profile`,
+    CORS `assert '400' == '200'`, campo `assert 'ph' == 'values.ph'`; GREEN `12 passed` y `15 passed`.
+    Suite completa `638 passed`; ruff/format/mypy OK. Smoke contra el stack dev (migración a `0006`):
+    alta de perfil, `PUT` de pH en `bright_beer`, evaluación `ph 4.6 → warning`, `color → no_spec`,
+    preflight `PUT` 200, `DELETE` 204, nombre repetido 409.
+
 ## Trabajo futuro
 - Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de
   refresh de los continuous aggregates (`tuple concurrently deleted`); visto una vez, no se reprodujo.
 
 ## Próximo paso
-Merge del PR del backend (decisión del usuario); después T3 (UI de lotes) en una rama nueva.
+Merge del PR de la UI de lotes y alertas (#8, decisión del usuario). T6 en `feat/quality-specs`:
+commits y PR (decisión del usuario). Después: análisis de laboratorio por etapa asociados a un lote y a
+un perfil de calidad (con parámetros derivados por fórmula), y su UI.

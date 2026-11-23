@@ -32,12 +32,32 @@ from fermon.fermentation.application.manage_alerts import (
 from fermon.fermentation.application.ports import (
     AlertRepository,
     BatchRepository,
+    QualityProfileRepository,
     ReadingRepository,
     TankRepository,
+)
+from fermon.fermentation.application.quality import (
+    CreateQualityProfile,
+    EvaluateQualityValues,
+    GetQualityProfile,
+    ListQualityProfiles,
+    QualityEvaluation,
+    RemoveQualitySpec,
+    SaveQualitySpec,
+    SaveQualitySpecCommand,
 )
 from fermon.fermentation.application.tank_overview import TankOverview
 
 __all__ = [
+    "CreateQualityProfile",
+    "EvaluateQualityValues",
+    "GetQualityProfile",
+    "ListQualityProfiles",
+    "QualityEvaluation",
+    "QualityProfileRepository",
+    "RemoveQualitySpec",
+    "SaveQualitySpec",
+    "SaveQualitySpecCommand",
     "AcknowledgeAlert",
     "GetAlert",
     "ListAlerts",

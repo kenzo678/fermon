@@ -13,7 +13,9 @@ from fermon.fermentation.domain import (
     QualityProfile,
     QualitySpec,
     QualityStage,
+    QualityTemplate,
     SpecRange,
+    quality_template_specs,
 )
 from fermon.fermentation.infrastructure.http.dependencies import (
     CreateQualityProfileDep,
@@ -90,6 +92,7 @@ class QualityProfileIn(BaseModel):
 
     name: str
     description: str | None = None
+    template: QualityTemplate | None = None  # starts the profile with that template's specs
 
 
 class QualityProfileOut(BaseModel):
@@ -108,6 +111,11 @@ class QualityProfileOut(BaseModel):
             created_at=profile.created_at.astimezone(UTC),
             specs=[QualitySpecOut.from_domain(s) for s in profile.specs],
         )
+
+
+class QualityTemplateOut(BaseModel):
+    template: str
+    specs: list[QualitySpecOut]
 
 
 class EvaluateIn(BaseModel):
@@ -150,6 +158,18 @@ async def list_quality_parameters() -> list[QualityParameterOut]:
     ]
 
 
+@router.get("/quality-profile-templates")
+async def list_quality_profile_templates() -> list[QualityTemplateOut]:
+    """Presets that prefill a new profile's specs: illustrative values meant to be edited."""
+    return [
+        QualityTemplateOut(
+            template=template.value,
+            specs=[QualitySpecOut.from_domain(s) for s in quality_template_specs(template)],
+        )
+        for template in QualityTemplate
+    ]
+
+
 @router.post(
     "/quality-profiles",
     status_code=status.HTTP_201_CREATED,
@@ -158,8 +178,12 @@ async def list_quality_parameters() -> list[QualityParameterOut]:
 async def create_quality_profile(
     body: QualityProfileIn, use_case: CreateQualityProfileDep
 ) -> QualityProfileOut:
-    """Create an empty profile; 409 on `name` if one already has that name (ignoring case)."""
-    return QualityProfileOut.from_domain(await use_case.execute(body.name, body.description))
+    """Create a profile, empty or prefilled from `template`.
+
+    409 on `name` if one already has that name (ignoring case).
+    """
+    profile = await use_case.execute(body.name, body.description, body.template)
+    return QualityProfileOut.from_domain(profile)
 
 
 @router.get("/quality-profiles")

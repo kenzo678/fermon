@@ -57,8 +57,10 @@ from fermon.fermentation.domain.quality import (
     QualitySpec,
     QualityStage,
     QualityStatus,
+    QualityTemplate,
     SpecRange,
     check_value,
+    quality_template_specs,
 )
 from fermon.fermentation.domain.reading import Reading
 from fermon.fermentation.domain.tank import Tank
@@ -109,6 +111,8 @@ __all__ = [
     "QualitySpecNotFoundError",
     "QualityStage",
     "QualityStatus",
+    "QualityTemplate",
+    "quality_template_specs",
     "SpecRange",
     "check_value",
     "Reading",

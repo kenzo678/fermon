@@ -14,6 +14,7 @@ from fermon.fermentation.domain import (
     QualityStatus,
     SpecRange,
     check_value,
+    quality_template_specs,
 )
 
 
@@ -35,9 +36,17 @@ class CreateQualityProfile:
         self._clock = clock
         self._new_id = new_id
 
-    async def execute(self, name: str, description: str | None) -> QualityProfile:
+    async def execute(
+        self, name: str, description: str | None, template: object = None
+    ) -> QualityProfile:
+        """A new profile; with ``template`` it starts with that template's specs."""
+        specs = () if template is None else quality_template_specs(template)
         profile = QualityProfile(
-            id=self._new_id(), name=name, description=description, created_at=self._clock()
+            id=self._new_id(),
+            name=name,
+            description=description,
+            created_at=self._clock(),
+            specs=specs,
         )
         await self._profiles.add(profile)
         return profile

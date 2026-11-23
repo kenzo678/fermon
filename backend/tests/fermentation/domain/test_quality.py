@@ -13,7 +13,9 @@ from fermon.fermentation.domain import (
     QualitySpecNotFoundError,
     QualityStage,
     QualityStatus,
+    QualityTemplate,
     SpecRange,
+    quality_template_specs,
 )
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -269,3 +271,34 @@ def test_unspecified_values_must_still_be_plausible() -> None:
     with pytest.raises(InvalidQualityError) as error:
         profile().evaluate(QualityStage.BREWHOUSE, {PH: 15.0})
     assert field_of(error) == "ph"
+
+
+# --- templates ---------------------------------------------------------------------------------
+
+
+def test_templates_are_listed_by_code() -> None:
+    assert [t.value for t in QualityTemplate] == ["pale_lager"]
+
+
+def test_pale_lager_covers_every_stage_with_consistent_specs() -> None:
+    specs = quality_template_specs(QualityTemplate.PALE_LAGER)
+
+    assert {s.stage for s in specs} == set(QualityStage)
+    assert len({s.key for s in specs}) == len(specs)
+    assert profile(*specs).specs  # a profile accepts them all at once
+
+
+def test_pale_lager_judges_typical_and_off_values() -> None:
+    specs = {s.key: s for s in quality_template_specs("pale_lager")}
+    bright_ph = specs[(QualityStage.BRIGHT_BEER, PH)]
+    packaged_abv = specs[(QualityStage.PACKAGED, QualityParameter.ALCOHOL_BY_VOLUME)]
+
+    assert bright_ph.evaluate(4.35) is QualityStatus.IN_SPEC
+    assert bright_ph.evaluate(5.5) is QualityStatus.OUT_OF_SPEC
+    assert packaged_abv.evaluate(4.9) is QualityStatus.IN_SPEC
+
+
+def test_unknown_template_is_rejected() -> None:
+    with pytest.raises(InvalidQualityError) as error:
+        quality_template_specs("stout")
+    assert field_of(error) == "template"

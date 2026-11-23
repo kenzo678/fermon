@@ -245,14 +245,23 @@ diferencia es menor que la resolución de los instrumentos. Migración `0006`.
 | Endpoint | Respuesta |
 | --- | --- |
 | `GET /quality-parameters` | Catálogo: `code`, `name`, `unit`, `minimum`, `maximum` (extractos °P, alcohol, pH, color EBC, amargor IBU, turbidez, O₂, CO₂, diacetilo, …) |
-| `POST /quality-profiles` | `201` perfil vacío; `409` (`name`) si ya existe uno con ese nombre sin distinguir mayúsculas |
+| `GET /quality-profile-templates` | Plantillas con especificaciones precargadas: `pale_lager` |
+| `POST /quality-profiles` | `201` perfil vacío, o precargado con `template`; `409` (`name`) si ya existe uno con ese nombre sin distinguir mayúsculas |
 | `GET /quality-profiles` | Perfiles por nombre, con sus especificaciones |
 | `GET /quality-profiles/{id}` | Un perfil; `404` (`profile_id`) |
 | `PUT /quality-profiles/{id}/specs/{stage}/{parameter}` | Crea o reemplaza la especificación; `422` nombra el campo inválido (p. ej. `internal.min`) |
 | `DELETE /quality-profiles/{id}/specs/{stage}/{parameter}` | `204`; `404` (`spec`) si no existe |
 | `POST /quality-profiles/{id}/evaluate` | Estado de cada valor de una etapa; `no_spec` si el perfil no especifica ese parámetro allí |
 
+La plantilla `pale_lager` trae 29 especificaciones repartidas en las cuatro etapas (extracto, pH,
+amargor, color, O₂ y FAN del mosto; extracto aparente, alcohol, diacetilo y turbidez al fin de reposo;
+alcohol, CO₂, O₂ disuelto, turbidez y temperatura en filtración; además espuma, TPO y UP en producto
+terminado). Son valores **ilustrativos** de manual para una lager rubia, pensados como punto de partida
+para editar con `PUT`; no son las especificaciones de ninguna cervecería.
+
 ```sh
+curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' \
+  -d '{"name": "House lager", "template": "pale_lager"}'
 curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' -d '{"name": "Pale lager"}'
 curl -X PUT localhost:8000/quality-profiles/<id>/specs/bright_beer/ph -H 'Content-Type: application/json' \
   -d '{"acceptance": {"min": 4.15, "max": 4.65}, "internal": {"min": 4.25, "max": 4.55}}'

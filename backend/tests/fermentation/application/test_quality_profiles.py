@@ -21,7 +21,9 @@ from fermon.fermentation.domain import (
     QualitySpecNotFoundError,
     QualityStage,
     QualityStatus,
+    QualityTemplate,
     SpecRange,
+    quality_template_specs,
 )
 from tests.fermentation.fakes import InMemoryQualityProfileRepository
 
@@ -59,6 +61,29 @@ async def test_create_stores_an_empty_profile(repository: InMemoryQualityProfile
     assert profile.created_at == T0
     assert profile.specs == ()
     assert await repository.get(UUID(int=7)) == profile
+
+
+async def test_create_from_a_template_preloads_its_specs(
+    repository: InMemoryQualityProfileRepository,
+) -> None:
+    use_case = CreateQualityProfile(repository, clock=lambda: T0, new_id=lambda: UUID(int=3))
+
+    profile = await use_case.execute("House lager", None, QualityTemplate.PALE_LAGER)
+
+    assert set(profile.specs) == set(quality_template_specs(QualityTemplate.PALE_LAGER))
+    assert await repository.get(UUID(int=3)) == profile
+
+
+async def test_create_with_an_unknown_template_stores_nothing(
+    repository: InMemoryQualityProfileRepository,
+) -> None:
+    use_case = CreateQualityProfile(repository, clock=lambda: T0, new_id=lambda: UUID(int=3))
+
+    with pytest.raises(InvalidQualityError) as error:
+        await use_case.execute("House lager", None, "stout")
+
+    assert error.value.field == "template"
+    assert await repository.list() == []
 
 
 async def test_create_rejects_a_duplicate_name(

@@ -241,3 +241,39 @@ async def test_evaluate_rejects_unknown_parameters_and_implausible_values(
     assert unknown.status_code == 422
     assert implausible.status_code == 422
     assert error_fields(implausible) == ["values.ph"]
+
+
+async def test_templates_list_their_specs(client: AsyncClient) -> None:
+    response = await client.get("/quality-profile-templates")
+
+    assert response.status_code == 200
+    [template] = response.json()
+    assert template["template"] == "pale_lager"
+    assert {s["stage"] for s in template["specs"]} == {
+        "brewhouse",
+        "maturation",
+        "bright_beer",
+        "packaged",
+    }
+    bright_ph = next(
+        s for s in template["specs"] if (s["stage"], s["parameter"]) == ("bright_beer", "ph")
+    )
+    assert bright_ph["acceptance"] == {"min": 4.1, "max": 4.6}
+
+
+async def test_create_from_a_template(client: AsyncClient) -> None:
+    template = (await client.get("/quality-profile-templates")).json()[0]
+
+    response = await client.post(
+        "/quality-profiles", json={"name": "House lager", "template": "pale_lager"}
+    )
+
+    assert response.status_code == 201
+    assert len(response.json()["specs"]) == len(template["specs"])
+
+
+async def test_unknown_template_is_unprocessable(client: AsyncClient) -> None:
+    response = await client.post("/quality-profiles", json={"name": "Stout", "template": "stout"})
+
+    assert response.status_code == 422
+    assert error_fields(response) == ["template"]

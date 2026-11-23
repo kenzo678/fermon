@@ -63,6 +63,10 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
     /quality-profiles/{id}/specs/{stage}/{parameter}`, `POST /quality-profiles/{id}/evaluate`; CORS
     con `PUT` y `DELETE`.
   - Fuera de alcance: asociar perfil a lote, cargar análisis, parámetros derivados por fórmula, UI.
+- [x] T6c — Plantilla de perfil de calidad `pale_lager` (como las plantillas de lote): valores
+  genéricos e ilustrativos de una lager rubia por etapa (no los de ninguna cervecería real);
+  `GET /quality-profile-templates` y `POST /quality-profiles` con `template` opcional que precarga
+  las especificaciones. Rama `feat/quality-profile-templates` encadenada sobre `feat/quality-specs`.
 
 ## Criterios de aceptación
 - Crear un lote activo en tank-1 con rango de temperatura que el simulador no cumple genera una
@@ -195,6 +199,18 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
     Suite completa `638 passed`; ruff/format/mypy OK. Smoke contra el stack dev (migración a `0006`):
     alta de perfil, `PUT` de pH en `bright_beer`, evaluación `ph 4.6 → warning`, `color → no_spec`,
     preflight `PUT` 200, `DELETE` 204, nombre repetido 409.
+  - T6c completada (rama `feat/quality-profile-templates` sobre `feat/quality-specs`). `QualityTemplate`
+    (`pale_lager`) con 29 especificaciones ilustrativas de manual en las cuatro etapas;
+    `CreateQualityProfile` acepta `template`; `GET /quality-profile-templates`. Evidencia TDD: dominio
+    RED `ImportError ... QualityTemplate`, GREEN `51 passed`; caso de uso RED `TypeError: execute() takes
+    3 positional arguments but 4 were given`, luego un fallo de la propia prueba (comparaba en orden y el
+    perfil ordena por etapa: se compara como conjunto), GREEN `12 passed`; API RED `404 == 200` y
+    `KeyError`, GREEN `15 passed` (la prueba de plantilla desconocida ya pasaba por `extra="forbid"`; tras
+    el cambio pasa porque el valor no es una plantilla válida). Suite completa: una corrida con
+    `2 failed` sin identificar (la salida quedó truncada) y luego tres seguidas con `647 passed`;
+    posiblemente el flaky de `TRUNCATE` registrado en Trabajo futuro, no confirmado. ruff/format/mypy OK.
+    Smoke dev: perfil desde plantilla con 29 especificaciones en 4 etapas; evaluación en `packaged`:
+    ABV 4.9 `in_spec`, diacetilo 42 `warning`, espuma 190 `out_of_spec`.
 
 ## Trabajo futuro
 - Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de

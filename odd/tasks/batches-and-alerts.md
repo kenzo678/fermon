@@ -67,6 +67,11 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
   genéricos e ilustrativos de una lager rubia por etapa (no los de ninguna cervecería real);
   `GET /quality-profile-templates` y `POST /quality-profiles` con `template` opcional que precarga
   las especificaciones. Rama `feat/quality-profile-templates` encadenada sobre `feat/quality-specs`.
+- [x] T6d — Asociar un lote a un perfil de calidad: `quality_profile_id` opcional en el lote
+  (migración `0007`, FK a `quality_profiles`); se envía al crear y se cambia o quita (`null`) con
+  `PATCH`; `404` en `quality_profile_id` si el perfil no existe; visible en `BatchOut` y en
+  `active_batch` de `/tanks`. Rama `feat/batch-quality-profile` encadenada sobre
+  `feat/quality-profile-templates`.
 
 ## Criterios de aceptación
 - Crear un lote activo en tank-1 con rango de temperatura que el simulador no cumple genera una
@@ -211,6 +216,22 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
     posiblemente el flaky de `TRUNCATE` registrado en Trabajo futuro, no confirmado. ruff/format/mypy OK.
     Smoke dev: perfil desde plantilla con 29 especificaciones en 4 etapas; evaluación en `packaged`:
     ABV 4.9 `in_spec`, diacetilo 42 `warning`, espuma 190 `out_of_spec`.
+  - T6d completada (rama `feat/batch-quality-profile` sobre `feat/quality-profile-templates`).
+    `Batch.quality_profile_id` (UUID opcional, editable); migración `0007` (columna nula con FK
+    `fk_batches_quality_profile_id`); `CreateBatch` y `UpdateBatch` reciben el repositorio de perfiles y
+    verifican que exista (en la edición, solo si el perfil cambia y después de la regla de lote
+    terminado, que sigue dando `409` primero); el repositorio de lotes traduce la FK a
+    `QualityProfileNotFoundError`, que ahora lleva el campo de la petición (`profile_id` por defecto,
+    `quality_profile_id` desde lotes). `BatchOut` y `ActiveBatchOut` exponen el campo (las dos pruebas
+    de forma exacta de la respuesta se actualizaron a propósito). Evidencia TDD: dominio RED
+    `AttributeError/TypeError ... quality_profile_id` y `cannot be edited`, GREEN `50 passed`;
+    persistencia RED (no se guardaba, `DID NOT RAISE`, columna inexistente), GREEN `19 passed`; casos de
+    uso RED `TypeError: CreateBatch.__init__() takes from 4 to 5 positional arguments`, GREEN
+    `30 passed`; API RED 7 pruebas, GREEN `85 passed` en `http/`. Suite completa `665 passed` tres veces
+    seguidas; ruff/format/mypy OK (ruff ordenó un import de una prueba). Smoke dev (migración a `0007`):
+    lote creado con perfil, visible en `active_batch` de `/tanks`, perfil desconocido `404` en
+    `quality_profile_id`, `null` lo quita (versión 3); datos del smoke borrados. La UI de lotes (#8)
+    usa interfaces TypeScript sin validación en tiempo de ejecución, así que el campo nuevo no la rompe.
 
 ## Trabajo futuro
 - Flaky ocasional en fixtures de integración: `TRUNCATE` sobre la hypertable choca con el job de
@@ -218,5 +239,6 @@ siguiente (reportes deterministas por lote, sin IA) depende de estos datos.
 
 ## Próximo paso
 Merge del PR de la UI de lotes y alertas (#8, decisión del usuario). T6 en `feat/quality-specs`:
-commits y PR (decisión del usuario). Después: análisis de laboratorio por etapa asociados a un lote y a
-un perfil de calidad (con parámetros derivados por fórmula), y su UI.
+commits y PR (decisión del usuario); T6c (#11) y T6d encadenados encima. Después: análisis de
+laboratorio por etapa de un lote, evaluados contra su perfil (con parámetros derivados por fórmula), y
+su UI.

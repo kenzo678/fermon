@@ -71,6 +71,12 @@ batches = Table(
     Column("notes", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("version", Integer, nullable=False, server_default=text("1")),
+    Column(
+        "quality_profile_id",
+        Uuid,
+        ForeignKey("quality_profiles.id", name="fk_batches_quality_profile_id"),
+        nullable=True,
+    ),
     CheckConstraint("status IN ('planned', 'active', 'finished')", name="ck_batches_status"),
     CheckConstraint("template IN ('ale', 'lager', 'custom')", name="ck_batches_template"),
     Index(

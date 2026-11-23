@@ -136,9 +136,10 @@ class InvalidQualityError(DomainError):
 class QualityProfileNotFoundError(DomainError):
     """Raised when a quality profile that was asked for does not exist."""
 
-    def __init__(self, profile_id: str) -> None:
+    def __init__(self, profile_id: str, field: str = "profile_id") -> None:
         super().__init__(f"quality profile '{profile_id}' not found")
         self.profile_id = profile_id
+        self.field = field  # the request field that named the profile
 
 
 class QualitySpecNotFoundError(DomainError):

@@ -2,7 +2,7 @@ import { delay, http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { server } from "../../test/server";
 import { ApiError } from "./errors";
-import { API_URL, apiGet, buildUrl } from "./client";
+import { API_URL, apiGet, apiSend, buildUrl } from "./client";
 import type { Tank } from "./types";
 
 const BASE = API_URL;
@@ -11,6 +11,8 @@ const tank: Tank = {
   id: "tank-1",
   display_name: null,
   first_seen_at: "2026-01-01T00:00:00Z",
+  active_batch: null,
+  open_alerts: 0,
   latest: {
     temperature: {
       tank_id: "tank-1",
@@ -196,5 +198,77 @@ describe("buildUrl", () => {
   it("rejects a scheme-less base such as host:port instead of resolving it against the page", () => {
     expect(() => buildUrl("/tanks", undefined, "localhost:8000")).toThrow(ApiError);
     expect(() => buildUrl("/tanks", undefined, "api.example.com/v1")).toThrow(ApiError);
+  });
+});
+
+describe("apiSend", () => {
+  it("sends a JSON body with the given method and parses the JSON response", async () => {
+    let received: { method: string; type: string | null; body: unknown } | undefined;
+    server.use(
+      http.post(`${BASE}/batches`, async ({ request }) => {
+        received = {
+          method: request.method,
+          type: request.headers.get("content-type"),
+          body: await request.json(),
+        };
+        return HttpResponse.json({ id: "b1" }, { status: 201 });
+      }),
+    );
+    await expect(apiSend("POST", "/batches", { beer_name: "IPA" })).resolves.toEqual({ id: "b1" });
+    expect(received).toEqual({ method: "POST", type: "application/json", body: { beer_name: "IPA" } });
+  });
+
+  it("supports PATCH and a body-less POST", async () => {
+    let patch = "";
+    let hasBody = true;
+    server.use(
+      http.patch(`${BASE}/batches/1`, async ({ request }) => {
+        patch = await request.text();
+        return HttpResponse.json({ ok: true });
+      }),
+      http.post(`${BASE}/batches/1/start`, async ({ request }) => {
+        hasBody = (await request.text()) !== "";
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await apiSend("PATCH", "/batches/1", { notes: null });
+    await apiSend("POST", "/batches/1/start");
+    expect(patch).toBe('{"notes":null}');
+    expect(hasBody).toBe(false);
+  });
+
+  it("maps the unified 409 error body to ApiError", async () => {
+    const detail = [{ field: "tank_id", message: "tank-1 already has an active batch" }];
+    server.use(http.post(`${BASE}/batches/1/start`, () => HttpResponse.json({ detail }, { status: 409 })));
+    const error = await apiSend("POST", "/batches/1/start").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, detail });
+  });
+
+  it("reports a network failure as ApiError(0)", async () => {
+    server.use(http.post(`${BASE}/batches`, () => HttpResponse.error()));
+    await expect(apiSend("POST", "/batches", {})).rejects.toMatchObject({ status: 0 });
+  });
+
+  it("rejects an empty 2xx body as invalid JSON", async () => {
+    server.use(http.post(`${BASE}/batches`, () => new HttpResponse(null, { status: 204 })));
+    await expect(apiSend("POST", "/batches", {})).rejects.toMatchObject({
+      status: 204,
+      message: "Invalid JSON response",
+    });
+  });
+
+  it("propagates an abort with the original reason", async () => {
+    server.use(
+      http.post(`${BASE}/batches`, async () => {
+        await delay("infinite");
+        return HttpResponse.json({});
+      }),
+    );
+    const controller = new AbortController();
+    const pending = apiSend("POST", "/batches", {}, { signal: controller.signal });
+    const reason = new Error("stop");
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
   });
 });

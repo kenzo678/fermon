@@ -10,6 +10,8 @@ import {
 } from "../readings";
 import type { RangeValue } from "../readings";
 import { ApiError } from "../../shared/api";
+import { ActiveAlerts } from "../alerts/ActiveAlerts";
+import { formatPressureRange, formatTemperatureRange } from "../batches/format";
 import { ErrorState } from "./components/ErrorState";
 import { MEASUREMENTS, MEASUREMENT_ORDER, formatDateTime } from "./format";
 import { useTankQuery } from "./useTankQuery";
@@ -64,6 +66,12 @@ export function TankDetailPage() {
   }
 
   const series = readings.data?.series;
+  const batch = tank.data.active_batch;
+  const bands = {
+    temperature: batch && { min: batch.targets.temperature_min, max: batch.targets.temperature_max },
+    pressure: batch && { min: batch.targets.pressure_min, max: batch.targets.pressure_max },
+    alcohol: null,
+  };
   return (
     <section className="space-y-6">
       <header className="space-y-1">
@@ -77,6 +85,36 @@ export function TankDetailPage() {
         <p className="text-sm text-slate-600">{tank.data.id}</p>
         <p className="text-sm text-slate-600">First seen {formatDateTime(tank.data.first_seen_at)}</p>
       </header>
+      <section aria-label="Active batch" className="rounded-lg border border-slate-200 bg-white p-4">
+        {batch ? (
+          <>
+            <p className="text-sm">
+              <Link to={`/batches/${encodeURIComponent(batch.id)}`} className="font-semibold underline">
+                {batch.beer_name}
+              </Link>{" "}
+              <span className="text-slate-600">· {batch.style}</span>
+            </p>
+            <dl className="mt-2 grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <dt className="text-xs text-slate-500">Target temperature</dt>
+                <dd className="font-medium tabular-nums">{formatTemperatureRange(batch.targets)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Target pressure</dt>
+                <dd className="font-medium tabular-nums">{formatPressureRange(batch.targets)}</dd>
+              </div>
+            </dl>
+          </>
+        ) : (
+          <p className="text-sm text-slate-600">
+            No active batch.{" "}
+            <Link to={`/batches/new?tank=${encodeURIComponent(tank.data.id)}`} className="font-medium underline">
+              Start a batch
+            </Link>
+          </p>
+        )}
+      </section>
+      <ActiveAlerts tankId={tank.data.id} />
       <RangeSelector value={range} onChange={selectRange} />
       {series !== undefined ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-1">
@@ -86,6 +124,7 @@ export function TankDetailPage() {
               title={MEASUREMENTS[measurement].label}
               unit={MEASUREMENTS[measurement].unit}
               points={series[measurement] ?? []}
+              target={bands[measurement] ?? undefined}
             />
           ))}
         </div>

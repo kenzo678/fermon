@@ -2,11 +2,11 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Route, Routes, useLocation } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API_URL } from "../../shared/api";
 import type { AggregatedPoint, AggregatedReadings } from "../../shared/api";
 import { createFakeSocketHub } from "../../test/fakeSocket";
-import { makeTank } from "../../test/fixtures";
+import { makeAlert, makeTank } from "../../test/fixtures";
 import { renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
 
@@ -70,6 +70,11 @@ function averageOf(chart: HTMLElement | undefined): number | undefined {
 }
 
 describe("TankDetailPage", () => {
+  // The page also lists the tank's active alerts; most tests do not care about them.
+  beforeEach(() => {
+    server.use(http.get(`${API_URL}/alerts`, () => HttpResponse.json([])));
+  });
+
   it("shows the tank header and one chart per measurement with its series", async () => {
     useHappyPath();
     renderWithProviders(<Page />, { route: "/tanks/tank-1" });
@@ -218,5 +223,70 @@ describe("TankDetailPage", () => {
     act(() => socket.serverClose(4404));
     expect(screen.getByRole("status", { name: "Connection: Offline" })).toBeInTheDocument();
     expect(screen.getAllByTestId("chart")).toHaveLength(3);
+  });
+
+  describe("active batch", () => {
+    const active_batch = {
+      id: "b-7",
+      beer_name: "Pale Ale",
+      style: "American Pale Ale",
+      targets: { temperature_min: 18, temperature_max: 21, pressure_max: 1, pressure_min: null, expected_final_abv: 5 },
+      started_at: "2026-03-01T10:05:00Z",
+      expected_end: null,
+    };
+    const bandOf = (chart: HTMLElement | undefined) => {
+      const option = JSON.parse(chart?.dataset.option ?? "{}") as {
+        series: Array<{ name: string; markArea?: { data: unknown } }>;
+      };
+      return option.series.find((s) => s.name === "Average")?.markArea?.data;
+    };
+
+    it("shows the batch, its targets and a link to it in the header", async () => {
+      server.use(
+        http.get(tankUrl, () => HttpResponse.json(makeTank("tank-1", { active_batch }))),
+        http.get(aggUrl, () => HttpResponse.json(fullSeries)),
+      );
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const link = await screen.findByRole("link", { name: "Pale Ale" });
+      expect(link).toHaveAttribute("href", "/batches/b-7");
+      expect(screen.getByText(/American Pale Ale/)).toBeInTheDocument();
+      expect(screen.getByText("18–21 °C")).toBeInTheDocument();
+      expect(screen.getByText("up to 1 bar")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Start a batch" })).not.toBeInTheDocument();
+    });
+
+    it("draws the target bands on the temperature and pressure charts only", async () => {
+      server.use(
+        http.get(tankUrl, () => HttpResponse.json(makeTank("tank-1", { active_batch }))),
+        http.get(aggUrl, () => HttpResponse.json(fullSeries)),
+      );
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const charts = await screen.findAllByTestId("chart");
+      expect(bandOf(charts[0])).toEqual([[{ yAxis: 18 }, { yAxis: 21 }]]);
+      expect(bandOf(charts[1])).toEqual([[{ yAxis: 0 }, { yAxis: 1 }]]);
+      expect(bandOf(charts[2])).toBeUndefined();
+    });
+
+    it("offers to start a batch, and draws no band, when none is active", async () => {
+      useHappyPath();
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const charts = await screen.findAllByTestId("chart");
+      expect(screen.getByRole("link", { name: "Start a batch" })).toHaveAttribute(
+        "href",
+        "/batches/new?tank=tank-1",
+      );
+      expect(charts.map(bandOf)).toEqual([undefined, undefined, undefined]);
+    });
+  });
+
+  describe("active alerts", () => {
+    it("lists the unresolved alerts of this tank", async () => {
+      useHappyPath();
+      server.use(http.get(`${API_URL}/alerts`, () => HttpResponse.json([makeAlert()])));
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      const section = await screen.findByRole("region", { name: "Active alerts" });
+      expect(await within(section).findByText(/Temperature below target/)).toBeInTheDocument();
+      expect(within(section).getByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
+    });
   });
 });

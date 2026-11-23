@@ -267,3 +267,71 @@ class QualityProfile:
             else:
                 result[parameter] = spec.evaluate(value)
         return result
+
+
+class QualityTemplate(StrEnum):
+    PALE_LAGER = "pale_lager"
+
+
+Bounds = tuple[float | None, float | None]
+
+
+def _spec(
+    stage: QualityStage,
+    parameter: QualityParameter,
+    acceptance: Bounds,
+    internal: Bounds | None = None,
+    target: float | None = None,
+) -> QualitySpec:
+    return QualitySpec(
+        stage,
+        parameter,
+        acceptance=SpecRange(*acceptance),
+        internal=None if internal is None else SpecRange(*internal),
+        target=target,
+    )
+
+
+_P = QualityParameter
+_S = QualityStage
+
+# Illustrative textbook values for a pale lager, meant as a starting point to edit: they are not
+# the specifications of any real brewery or product.
+_TEMPLATES: dict[QualityTemplate, tuple[QualitySpec, ...]] = {
+    QualityTemplate.PALE_LAGER: (
+        _spec(_S.BREWHOUSE, _P.ORIGINAL_EXTRACT, (10.5, 12.5), (11.0, 12.0), 11.5),
+        _spec(_S.BREWHOUSE, _P.PH, (5.0, 5.5), (5.1, 5.4)),
+        _spec(_S.BREWHOUSE, _P.BITTERNESS, (18.0, 32.0), (20.0, 30.0)),
+        _spec(_S.BREWHOUSE, _P.COLOR, (6.0, 14.0), (7.0, 12.0)),
+        _spec(_S.BREWHOUSE, _P.WORT_OXYGEN, (6.0, 14.0), (8.0, 12.0)),
+        _spec(_S.BREWHOUSE, _P.FREE_AMINO_NITROGEN, (140.0, 240.0), (160.0, 220.0)),
+        _spec(_S.MATURATION, _P.APPARENT_EXTRACT, (None, 2.5), (None, 2.2)),
+        _spec(_S.MATURATION, _P.ALCOHOL_BY_VOLUME, (4.4, 5.4), (4.6, 5.2)),
+        _spec(_S.MATURATION, _P.PH, (4.0, 4.7), (4.1, 4.6)),
+        _spec(_S.MATURATION, _P.DIACETYL, (None, 80.0), (None, 50.0)),
+        _spec(_S.MATURATION, _P.TURBIDITY_90, (None, 50.0), (None, 30.0)),
+        _spec(_S.BRIGHT_BEER, _P.ORIGINAL_EXTRACT, (10.5, 12.5), (11.0, 12.0)),
+        _spec(_S.BRIGHT_BEER, _P.ALCOHOL_BY_VOLUME, (4.5, 5.3), (4.7, 5.1), 4.9),
+        _spec(_S.BRIGHT_BEER, _P.PH, (4.1, 4.6), (4.2, 4.5)),
+        _spec(_S.BRIGHT_BEER, _P.COLOR, (5.0, 10.0), (6.0, 9.0)),
+        _spec(_S.BRIGHT_BEER, _P.TURBIDITY_90, (None, 1.0), (None, 0.8)),
+        _spec(_S.BRIGHT_BEER, _P.CARBON_DIOXIDE, (4.8, 5.6), (5.0, 5.4)),
+        _spec(_S.BRIGHT_BEER, _P.DISSOLVED_OXYGEN, (None, 100.0), (None, 50.0)),
+        _spec(_S.BRIGHT_BEER, _P.TEMPERATURE, (-1.0, 3.0), (0.0, 2.0)),
+        _spec(_S.PACKAGED, _P.ALCOHOL_BY_VOLUME, (4.5, 5.3), (4.7, 5.1), 4.9),
+        _spec(_S.PACKAGED, _P.PH, (4.1, 4.6), (4.2, 4.5)),
+        _spec(_S.PACKAGED, _P.BITTERNESS, (14.0, 26.0), (16.0, 24.0), 20.0),
+        _spec(_S.PACKAGED, _P.COLOR, (5.0, 10.0), (6.0, 9.0)),
+        _spec(_S.PACKAGED, _P.TURBIDITY_90, (None, 1.0), (None, 0.8)),
+        _spec(_S.PACKAGED, _P.CARBON_DIOXIDE, (4.8, 5.6), (5.0, 5.4)),
+        _spec(_S.PACKAGED, _P.TOTAL_PACKAGE_OXYGEN, (None, 150.0), (None, 100.0)),
+        _spec(_S.PACKAGED, _P.DIACETYL, (None, 50.0), (None, 30.0)),
+        _spec(_S.PACKAGED, _P.FOAM_STABILITY, (200.0, None), (230.0, None)),
+        _spec(_S.PACKAGED, _P.PASTEURIZATION_UNITS, (10.0, 40.0), (15.0, 30.0)),
+    ),
+}
+
+
+def quality_template_specs(template: object) -> tuple[QualitySpec, ...]:
+    """The preset specs of a profile template (a ``QualityTemplate`` or its code)."""
+    return _TEMPLATES[_enum(QualityTemplate, "template", template)]

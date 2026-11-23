@@ -124,6 +124,40 @@ class InvalidAlertTransitionError(DomainError):
         self.action = action
 
 
+class InvalidQualityError(DomainError):
+    """Raised when a quality profile, specification or lab value violates a domain invariant."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(f"invalid {field}: {message}")
+        self.field = field
+        self.reason = message
+
+
+class QualityProfileNotFoundError(DomainError):
+    """Raised when a quality profile that was asked for does not exist."""
+
+    def __init__(self, profile_id: str) -> None:
+        super().__init__(f"quality profile '{profile_id}' not found")
+        self.profile_id = profile_id
+
+
+class QualitySpecNotFoundError(DomainError):
+    """Raised when a profile has no specification for the given stage and parameter."""
+
+    def __init__(self, stage: str, parameter: str) -> None:
+        super().__init__(f"no specification for '{parameter}' at stage '{stage}'")
+        self.stage = stage
+        self.parameter = parameter
+
+
+class DuplicateQualityProfileError(DomainError):
+    """Raised when another quality profile already has the same name (ignoring case)."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"a quality profile named '{name}' already exists")
+        self.name = name
+
+
 class ConcurrentAlertUpdateError(DomainError):
     """Raised when an alert changed since it was read, so writing the stale copy would lose data."""
 

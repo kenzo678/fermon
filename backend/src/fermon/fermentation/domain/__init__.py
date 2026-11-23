@@ -34,19 +34,32 @@ from fermon.fermentation.domain.errors import (
     ConcurrentAlertUpdateError,
     ConcurrentBatchUpdateError,
     DomainError,
+    DuplicateQualityProfileError,
     InvalidAlertError,
     InvalidAlertTransitionError,
     InvalidBatchError,
     InvalidBatchTransitionError,
     InvalidIdentifierError,
+    InvalidQualityError,
     InvalidReadingError,
     InvalidTankError,
     InvalidTimeRangeError,
+    QualityProfileNotFoundError,
+    QualitySpecNotFoundError,
     TankNotFoundError,
     TooManyPointsError,
 )
 from fermon.fermentation.domain.identifier import normalize_id
 from fermon.fermentation.domain.measurement import MeasurementType
+from fermon.fermentation.domain.quality import (
+    QualityParameter,
+    QualityProfile,
+    QualitySpec,
+    QualityStage,
+    QualityStatus,
+    SpecRange,
+    check_value,
+)
 from fermon.fermentation.domain.reading import Reading
 from fermon.fermentation.domain.tank import Tank
 from fermon.fermentation.domain.time_range import validate_time_range
@@ -87,6 +100,17 @@ __all__ = [
     "InvalidTankError",
     "InvalidTimeRangeError",
     "MeasurementType",
+    "DuplicateQualityProfileError",
+    "InvalidQualityError",
+    "QualityParameter",
+    "QualityProfile",
+    "QualityProfileNotFoundError",
+    "QualitySpec",
+    "QualitySpecNotFoundError",
+    "QualityStage",
+    "QualityStatus",
+    "SpecRange",
+    "check_value",
     "Reading",
     "Tank",
     "TankNotFoundError",

@@ -117,6 +117,44 @@ alerts = Table(
     Index("ix_alerts_status_opened_at", "status", desc("opened_at")),
 )
 
+quality_profiles = Table(
+    "quality_profiles",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    # Names are unique ignoring case, so "Pale lager" and "PALE LAGER" cannot coexist.
+    Index("uq_quality_profiles_name", text("lower(name)"), unique=True),
+)
+
+quality_specs = Table(
+    "quality_specs",
+    metadata,
+    Column(
+        "profile_id",
+        Uuid,
+        ForeignKey("quality_profiles.id", name="fk_quality_specs_profile_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("stage", Text, primary_key=True),
+    # Not constrained in the database: the parameter catalog lives in the domain and may grow.
+    Column("parameter", Text, primary_key=True),
+    Column("target", Double, nullable=True),
+    Column("internal_min", Double, nullable=True),
+    Column("internal_max", Double, nullable=True),
+    Column("acceptance_min", Double, nullable=True),
+    Column("acceptance_max", Double, nullable=True),
+    CheckConstraint(
+        "stage IN ('brewhouse', 'maturation', 'bright_beer', 'packaged')",
+        name="ck_quality_specs_stage",
+    ),
+    CheckConstraint(
+        "acceptance_min IS NOT NULL OR acceptance_max IS NOT NULL",
+        name="ck_quality_specs_acceptance",
+    ),
+)
+
 
 # Continuous aggregates created by migration 0003 (see it for the semantics). They are views, not
 # tables to migrate, so they live in their own MetaData: Alembic autogenerate must not manage them.

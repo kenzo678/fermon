@@ -13,7 +13,13 @@ from fermon.fermentation.domain import (
     BatchStatus,
     ConcurrentAlertUpdateError,
     ConcurrentBatchUpdateError,
+    DuplicateQualityProfileError,
     MeasurementType,
+    QualityParameter,
+    QualityProfile,
+    QualityProfileNotFoundError,
+    QualitySpec,
+    QualityStage,
     Reading,
     Tank,
 )
@@ -239,3 +245,36 @@ class InMemoryAlertRepository:
             ),
             None,
         )
+
+
+class InMemoryQualityProfileRepository:
+    """Mirrors the SQL adapter: names unique ignoring case, specs keyed by (stage, parameter)."""
+
+    def __init__(self) -> None:
+        self.profiles: dict[UUID, QualityProfile] = {}
+
+    async def add(self, profile: QualityProfile) -> None:
+        if any(p.name.lower() == profile.name.lower() for p in self.profiles.values()):
+            raise DuplicateQualityProfileError(profile.name)
+        self.profiles[profile.id] = profile
+
+    async def get(self, profile_id: UUID) -> QualityProfile | None:
+        return self.profiles.get(profile_id)
+
+    async def list(self) -> list[QualityProfile]:
+        return sorted(self.profiles.values(), key=lambda p: (p.name.lower(), p.id))
+
+    async def save_spec(self, profile_id: UUID, spec: QualitySpec) -> None:
+        profile = self.profiles.get(profile_id)
+        if profile is None:
+            raise QualityProfileNotFoundError(str(profile_id))
+        self.profiles[profile_id] = profile.with_spec(spec)
+
+    async def delete_spec(
+        self, profile_id: UUID, stage: QualityStage, parameter: QualityParameter
+    ) -> bool:
+        profile = self.profiles.get(profile_id)
+        if profile is None or profile.spec_for(stage, parameter) is None:
+            return False
+        self.profiles[profile_id] = profile.without_spec(stage, parameter)
+        return True

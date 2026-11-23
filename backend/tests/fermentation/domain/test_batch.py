@@ -255,3 +255,28 @@ def test_a_version_below_one_is_invalid() -> None:
     with pytest.raises(InvalidBatchError) as exc:
         make_batch(version=0)
     assert exc.value.field == "version"
+
+
+# --- quality profile link ----------------------------------------------------------------------
+
+PROFILE_ID = UUID(int=500)
+
+
+def test_quality_profile_is_optional_and_defaults_to_none() -> None:
+    assert make_batch().quality_profile_id is None
+    assert make_batch(quality_profile_id=PROFILE_ID).quality_profile_id == PROFILE_ID
+
+
+@pytest.mark.parametrize("bad", [str(PROFILE_ID), 500, ""])
+def test_quality_profile_must_be_a_uuid(bad: object) -> None:
+    with pytest.raises(InvalidBatchError) as error:
+        make_batch(quality_profile_id=bad)
+    assert error.value.field == "quality_profile_id"
+
+
+def test_quality_profile_can_be_set_and_cleared_by_editing() -> None:
+    linked = make_batch().edit(quality_profile_id=PROFILE_ID)
+    cleared = linked.edit(quality_profile_id=None)
+
+    assert (linked.quality_profile_id, linked.version) == (PROFILE_ID, 2)
+    assert (cleared.quality_profile_id, cleared.version) == (None, 3)

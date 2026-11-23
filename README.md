@@ -224,7 +224,13 @@ curl -X POST localhost:8000/batches/<id>/finish
 ```
 
 `GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
-`started_at`, `expected_end`), resuelto con una sola consulta para todos los tanques listados.
+`started_at`, `expected_end`, `quality_profile_id`), resuelto con una sola consulta para todos los
+tanques listados.
+
+Un lote puede asociarse a un **perfil de calidad** (ver más abajo) con `quality_profile_id`: se envía
+al crear y se cambia o se quita (`null`) con `PATCH` mientras el lote no haya terminado. Si el perfil no
+existe responde `404` con `field` `quality_profile_id`. Es opcional (migración `0007`, clave foránea a
+`quality_profiles`); los lotes anteriores quedan sin perfil.
 
 ## Especificaciones de calidad
 
@@ -270,7 +276,8 @@ curl -X POST localhost:8000/quality-profiles/<id>/evaluate -H 'Content-Type: app
 # -> ph: "warning", color: "no_spec"
 ```
 
-Todavía no se asocia un perfil a un lote ni se guardan análisis: es el paso siguiente.
+Un lote se asocia a un perfil con `quality_profile_id` (ver Lotes). Todavía no se guardan análisis
+de laboratorio: es el paso siguiente.
 
 ## Alertas
 

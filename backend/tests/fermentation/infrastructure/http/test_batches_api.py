@@ -17,6 +17,7 @@ from fermon.fermentation.application import (
     StartBatch,
     UpdateBatch,
 )
+from fermon.fermentation.domain import QualityProfile
 from fermon.fermentation.infrastructure.http.dependencies import (
     get_create_batch,
     get_finish_batch,
@@ -31,11 +32,13 @@ from fermon.main import create_app
 from tests.fermentation.fakes import (
     InMemoryAlertRepository,
     InMemoryBatchRepository,
+    InMemoryQualityProfileRepository,
     InMemoryReadingRepository,
     InMemoryTankRepository,
 )
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+PROFILE_ID = UUID(int=500)
 ALE_TARGETS = {
     "temperature_min": 18.0,
     "temperature_max": 21.0,
@@ -56,13 +59,15 @@ class Ids:
 
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
-    tanks, batches, readings = (
+    tanks, batches, readings, profiles = (
         InMemoryTankRepository(),
         InMemoryBatchRepository(),
         InMemoryReadingRepository(),
+        InMemoryQualityProfileRepository(),
     )
     for tank in ("tank-1", "tank-2"):
         await tanks.ensure(tank, T0)
+    await profiles.add(QualityProfile(id=PROFILE_ID, name="Pale lager", created_at=T0))
     now = [T0]
     ids = Ids()
 
@@ -71,8 +76,8 @@ async def client() -> AsyncIterator[AsyncClient]:
 
     app: FastAPI = create_app()
     overrides: Any = app.dependency_overrides
-    overrides[get_create_batch] = lambda: CreateBatch(batches, tanks, clock, ids)
-    overrides[get_update_batch] = lambda: UpdateBatch(batches)
+    overrides[get_create_batch] = lambda: CreateBatch(batches, tanks, profiles, clock, ids)
+    overrides[get_update_batch] = lambda: UpdateBatch(batches, profiles)
     overrides[get_start_batch] = lambda: StartBatch(batches, clock)
     overrides[get_finish_batch] = lambda: FinishBatch(batches, clock)
     overrides[get_get_batch] = lambda: GetBatch(batches)
@@ -149,6 +154,7 @@ async def test_create_returns_201_with_the_batch_shape_in_utc(client: AsyncClien
         "notes": "first",
         "created_at": "2026-01-01T12:00:00Z",
         "version": 1,
+        "quality_profile_id": None,
     }
 
 
@@ -330,6 +336,62 @@ async def test_tanks_expose_the_active_batch_summary_or_null(client: AsyncClient
         "targets": ALE_TARGETS,
         "started_at": "2026-01-01T12:00:00Z",
         "expected_end": "2026-01-20T12:00:00Z",
+        "quality_profile_id": None,
     }
     assert listed[0]["active_batch"] == expected and one["active_batch"] == expected
     assert listed[1]["active_batch"] is None and idle["active_batch"] is None
+
+
+# --- quality profile link ----------------------------------------------------------------------
+
+
+def error_fields(response: Any) -> list[str | None]:
+    return [d["field"] for d in response.json()["detail"]]
+
+
+async def test_create_links_a_quality_profile(client: AsyncClient) -> None:
+    created = await create(client, quality_profile_id=str(PROFILE_ID))
+
+    assert created["quality_profile_id"] == str(PROFILE_ID)
+    assert (await client.get(f"/batches/{created['id']}")).json() == created
+
+
+async def test_create_with_an_unknown_quality_profile_is_not_found(client: AsyncClient) -> None:
+    response = await client.post("/batches", json=body(quality_profile_id=str(UUID(int=501))))
+
+    assert response.status_code == 404
+    assert error_fields(response) == ["quality_profile_id"]
+    assert (await client.get("/batches")).json() == []
+
+
+async def test_patch_links_and_clears_the_quality_profile(client: AsyncClient) -> None:
+    created = await create(client)
+    url = f"/batches/{created['id']}"
+
+    linked = await client.patch(url, json={"quality_profile_id": str(PROFILE_ID)})
+    cleared = await client.patch(url, json={"quality_profile_id": None})
+
+    assert (linked.status_code, linked.json()["quality_profile_id"]) == (200, str(PROFILE_ID))
+    assert (cleared.status_code, cleared.json()["quality_profile_id"]) == (200, None)
+    assert cleared.json()["version"] == 3
+
+
+async def test_patch_with_an_unknown_or_malformed_quality_profile(client: AsyncClient) -> None:
+    created = await create(client)
+    url = f"/batches/{created['id']}"
+
+    unknown = await client.patch(url, json={"quality_profile_id": str(UUID(int=501))})
+    malformed = await client.patch(url, json={"quality_profile_id": "pale-lager"})
+
+    assert (unknown.status_code, error_fields(unknown)) == (404, ["quality_profile_id"])
+    assert (malformed.status_code, error_fields(malformed)) == (422, ["quality_profile_id"])
+    assert (await client.get(url)).json() == created
+
+
+async def test_active_batch_on_tanks_carries_the_quality_profile(client: AsyncClient) -> None:
+    batch = await create(client, quality_profile_id=str(PROFILE_ID))
+    await client.post(f"/batches/{batch['id']}/start")
+
+    tank = (await client.get("/tanks/tank-1")).json()
+
+    assert tank["active_batch"]["quality_profile_id"] == str(PROFILE_ID)

@@ -214,3 +214,31 @@ async def test_quality_migration_creates_both_tables_and_is_dropped_on_downgrade
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")
         await engine.dispose()
+
+
+async def test_batch_quality_profile_migration_adds_the_link_and_drops_it_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    column = text(
+        "SELECT is_nullable FROM information_schema.columns "
+        "WHERE table_name = 'batches' AND column_name = 'quality_profile_id'"
+    )
+    foreign_key = text(
+        "SELECT confrelid::regclass::text FROM pg_constraint "
+        "WHERE conname = 'fk_batches_quality_profile_id'"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert await conn.scalar(column) == "YES"
+            assert await conn.scalar(foreign_key) == "quality_profiles"
+
+        await asyncio.to_thread(command.downgrade, config, "0006")
+        async with engine.connect() as conn:
+            assert await conn.scalar(column) is None
+            assert await conn.scalar(foreign_key) is None
+            assert await conn.scalar(text("SELECT to_regclass('public.batches')")) is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()

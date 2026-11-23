@@ -88,6 +88,15 @@ def _not_found(field: str) -> Callable[[Request, Exception], Awaitable[JSONRespo
     return handler
 
 
+async def quality_profile_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Map an unknown quality profile to 404 on the request field that named it."""
+    assert isinstance(exc, QualityProfileNotFoundError)
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": [{"field": exc.field, "message": str(exc)}]},
+    )
+
+
 async def duplicate_name_handler(_: Request, exc: Exception) -> JSONResponse:
     """Map a quality profile name already in use to 409 on ``name``."""
     return JSONResponse(
@@ -135,7 +144,7 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ConcurrentAlertUpdateError, conflict_handler)
     app.add_exception_handler(InvalidBatchTransitionError, conflict_handler)
     app.add_exception_handler(ConcurrentBatchUpdateError, conflict_handler)
-    app.add_exception_handler(QualityProfileNotFoundError, _not_found("profile_id"))
+    app.add_exception_handler(QualityProfileNotFoundError, quality_profile_not_found_handler)
     app.add_exception_handler(QualitySpecNotFoundError, _not_found("spec"))
     app.add_exception_handler(DuplicateQualityProfileError, duplicate_name_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

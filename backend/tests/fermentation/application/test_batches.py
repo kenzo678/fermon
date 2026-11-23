@@ -23,6 +23,8 @@ from fermon.fermentation.domain import (
     ConcurrentBatchUpdateError,
     InvalidBatchError,
     InvalidBatchTransitionError,
+    QualityProfile,
+    QualityProfileNotFoundError,
     StyleTemplate,
     TankNotFoundError,
     TargetRanges,
@@ -30,6 +32,7 @@ from fermon.fermentation.domain import (
 from tests.fermentation.fakes import (
     InMemoryAlertRepository,
     InMemoryBatchRepository,
+    InMemoryQualityProfileRepository,
     InMemoryReadingRepository,
     InMemoryTankRepository,
 )
@@ -59,9 +62,10 @@ class World:
         self.tanks = InMemoryTankRepository()
         self.batches = InMemoryBatchRepository()
         self.readings = InMemoryReadingRepository()
+        self.profiles = InMemoryQualityProfileRepository()
         self.clock = Clock()
-        self.create = CreateBatch(self.batches, self.tanks, self.clock, Ids())
-        self.update = UpdateBatch(self.batches)
+        self.create = CreateBatch(self.batches, self.tanks, self.profiles, self.clock, Ids())
+        self.update = UpdateBatch(self.batches, self.profiles)
         self.start = StartBatch(self.batches, self.clock)
         self.finish = FinishBatch(self.batches, self.clock)
 
@@ -410,3 +414,67 @@ async def test_a_failing_after_finished_hook_never_fails_the_finish() -> None:
 
     assert finished.status is BatchStatus.FINISHED
     assert await w.batches.get(batch.id) == finished
+
+
+# --- quality profile link ----------------------------------------------------------------------
+
+PROFILE_ID = UUID(int=500)
+UNKNOWN_PROFILE = UUID(int=501)
+
+
+async def world_with_profile() -> World:
+    w = await world()
+    await w.profiles.add(QualityProfile(id=PROFILE_ID, name="Pale lager", created_at=T0))
+    return w
+
+
+async def test_create_links_an_existing_quality_profile() -> None:
+    w = await world_with_profile()
+
+    batch = await w.create.execute(command(quality_profile_id=PROFILE_ID))
+
+    assert batch.quality_profile_id == PROFILE_ID
+    assert (await w.batches.get(batch.id)) == batch
+
+
+async def test_create_with_an_unknown_quality_profile_stores_nothing() -> None:
+    w = await world_with_profile()
+
+    with pytest.raises(QualityProfileNotFoundError) as error:
+        await w.create.execute(command(quality_profile_id=UNKNOWN_PROFILE))
+
+    assert error.value.field == "quality_profile_id"
+    assert w.batches.batches == {}
+
+
+async def test_update_links_changes_and_clears_the_quality_profile() -> None:
+    w = await world_with_profile()
+    batch = await w.create.execute(command())
+
+    linked = await w.update.execute(batch.id, {"quality_profile_id": PROFILE_ID})
+    cleared = await w.update.execute(batch.id, {"quality_profile_id": None})
+
+    assert (linked.quality_profile_id, linked.version) == (PROFILE_ID, 2)
+    assert (cleared.quality_profile_id, cleared.version) == (None, 3)
+    assert (await w.batches.get(batch.id)) == cleared
+
+
+async def test_update_to_an_unknown_quality_profile_writes_nothing() -> None:
+    w = await world_with_profile()
+    batch = await w.create.execute(command())
+
+    with pytest.raises(QualityProfileNotFoundError) as error:
+        await w.update.execute(batch.id, {"quality_profile_id": UNKNOWN_PROFILE, "notes": "x"})
+
+    assert error.value.field == "quality_profile_id"
+    assert (await w.batches.get(batch.id)) == batch
+
+
+async def test_finished_batch_is_a_conflict_before_the_profile_is_checked() -> None:
+    w = await world_with_profile()
+    batch = await w.create.execute(command())
+    await w.start.execute(batch.id)
+    await w.finish.execute(batch.id)
+
+    with pytest.raises(InvalidBatchTransitionError):
+        await w.update.execute(batch.id, {"quality_profile_id": UNKNOWN_PROFILE})

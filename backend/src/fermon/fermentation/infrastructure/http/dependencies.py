@@ -101,12 +101,18 @@ ClockDep = Annotated[Clock, Depends(get_clock)]
 
 def get_create_batch(session_factory: SessionFactory, clock: ClockDep) -> CreateBatch:
     return CreateBatch(
-        SqlAlchemyBatchRepository(session_factory), SqlAlchemyTankRepository(session_factory), clock
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyTankRepository(session_factory),
+        SqlAlchemyQualityProfileRepository(session_factory),
+        clock,
     )
 
 
 def get_update_batch(session_factory: SessionFactory) -> UpdateBatch:
-    return UpdateBatch(SqlAlchemyBatchRepository(session_factory))
+    return UpdateBatch(
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyQualityProfileRepository(session_factory),
+    )
 
 
 def get_start_batch(session_factory: SessionFactory, clock: ClockDep) -> StartBatch:

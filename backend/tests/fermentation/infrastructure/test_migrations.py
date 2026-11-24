@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from fermon.fermentation.infrastructure.persistence import metadata
 from fermon.fermentation.infrastructure.schema import alembic_config
+from fermon.identity.infrastructure.persistence import identity_metadata
 
 pytestmark = pytest.mark.integration
 
@@ -31,7 +32,9 @@ async def test_migrated_schema_matches_table_metadata(migrated_database_url: str
     try:
         async with engine.connect() as conn:
             diffs = await conn.run_sync(
-                lambda sync_conn: compare_metadata(MigrationContext.configure(sync_conn), metadata)
+                lambda sync_conn: compare_metadata(
+                    MigrationContext.configure(sync_conn), [metadata, identity_metadata]
+                )
             )
     finally:
         await engine.dispose()
@@ -268,6 +271,32 @@ async def test_lab_analyses_migration_creates_both_tables_and_drops_them_on_down
             assert await conn.scalar(analyses) is None
             assert await conn.scalar(results) is None
             assert await conn.scalar(text("SELECT to_regclass('public.batches')")) is not None
+    finally:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        await engine.dispose()
+
+
+async def test_users_migration_creates_both_tables_and_is_dropped_on_downgrade(
+    migrated_database_url: str,
+) -> None:
+    config = alembic_config(migrated_database_url)
+    engine = create_async_engine(migrated_database_url)
+    tables = text("SELECT to_regclass('public.users'), to_regclass('public.sessions')")
+    indexes = text(
+        "SELECT indexname, indexdef FROM pg_indexes WHERE tablename IN ('users','sessions')"
+    )
+    try:
+        async with engine.connect() as conn:
+            assert all(name is not None for name in (await conn.execute(tables)).one())
+            definitions = {r.indexname: r.indexdef for r in await conn.execute(indexes)}
+        assert "UNIQUE" in definitions["uq_users_email_lower"]
+        assert "lower(email)" in definitions["uq_users_email_lower"]
+        assert "user_id" in definitions["ix_sessions_user_id"]
+
+        await asyncio.to_thread(command.downgrade, config, "0008")
+        async with engine.connect() as conn:
+            assert (await conn.execute(tables)).one() == (None, None)
+            assert await conn.scalar(text("SELECT to_regclass('public.lab_analyses')")) is not None
     finally:
         await asyncio.to_thread(command.upgrade, config, "head")
         await engine.dispose()

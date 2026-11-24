@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     alert_resolve_seconds: int = Field(default=120, gt=0)
     alert_silent_seconds: int = Field(default=600, gt=0)
     alert_silent_check_interval_seconds: int = Field(default=60, gt=0)
+    # Server-side login sessions (see the README): lifetime in seconds, and the cookie's Secure
+    # flag, off by default so local development over plain http works.
+    session_ttl_seconds: int = Field(default=8 * 3600, gt=0)
+    session_cookie_secure: bool = False
+    # Failed-login throttling (per process): failures allowed per account / per client IP inside
+    # the sliding window before login answers 429 (see the README).
+    login_max_failures_per_account: int = Field(default=5, gt=0)
+    login_max_failures_per_ip: int = Field(default=20, gt=0)
+    login_throttle_window_seconds: int = Field(default=15 * 60, gt=0)
     # Where the ingestor finds Alembic's config; override when not running from the source tree.
     alembic_ini_path: Path = DEFAULT_ALEMBIC_INI_PATH
     # Origins allowed to call the API from a browser. NoDecode: the env value is a plain

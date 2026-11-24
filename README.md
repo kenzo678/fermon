@@ -187,6 +187,63 @@ unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido
 CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
 ```
 
+## Usuarios y sesiones
+
+La API tiene usuarios con roles y sesiones del lado del servidor. En esta etapa solo existen los
+endpoints de autenticación y de gestión de usuarios; los demás endpoints todavía no exigen sesión.
+
+| Rol | Permisos |
+| --- | --- |
+| `admin` | Todo, incluida la gestión de usuarios |
+| `brewer` | Crear, editar, iniciar y finalizar lotes; reconocer alertas; descargar reportes |
+| `viewer` | Solo lectura y descarga de reportes |
+
+Las contraseñas se guardan con Argon2id y deben tener al menos 10 caracteres. No hay registro
+abierto: el primer administrador se crea por comando y los demás los crea un admin con una contraseña
+temporal (el usuario queda con `must_change_password: true` hasta que la cambia).
+
+```sh
+# La contraseña nunca va por argumentos ni queda en el historial del shell: se lee sin eco y se
+# pasa al contenedor solo por nombre (`-e VAR`); o se omite y el comando la pide con `-it`.
+read -rs FERMON_ADMIN_PASSWORD; export FERMON_ADMIN_PASSWORD
+docker compose run --rm -e FERMON_ADMIN_PASSWORD api \
+  python -m fermon.identity.create_admin --email admin@example.com --name "Admin"
+```
+
+El comando falla si el email ya existe. Los emails se normalizan a minúsculas y son únicos sin
+distinguir mayúsculas.
+
+| Endpoint | Descripción |
+| --- | --- |
+| `POST /auth/login` | `{email, password}` → `200 {user}` y cookie `fermon_session`; `401` genérico si falla; `429` con `Retry-After` tras demasiados fallos |
+| `POST /auth/logout` | `204`, revoca la sesión y borra la cookie (idempotente) |
+| `GET /auth/me` | `200 {user}` o `401` |
+| `POST /auth/password` | `{current_password, new_password}` → `204`; cierra las demás sesiones del usuario |
+| `GET /users`, `POST /users` | Listar / crear usuarios (`POST` → `201`); solo `admin` |
+| `PATCH /users/{id}` | `{version, role?, active?, display_name?}`; `409` si la versión quedó vieja o si se intenta degradar o desactivar al último admin |
+| `POST /users/{id}/reset-password` | `{temporary_password}` → `204`; cierra todas las sesiones del usuario |
+
+Sin sesión las rutas de usuarios responden `401`; con un rol insuficiente, `403`. El usuario nunca
+incluye el hash de la contraseña.
+
+La cookie `fermon_session` es `HttpOnly`, `SameSite=Lax` y `Path=/`. El navegador solo guarda un
+token aleatorio; en la base se guarda su hash SHA-256 (tabla `sessions`), de modo que se puede
+revocar y expira sola. Variables de entorno:
+
+| Variable | Defecto | Descripción |
+| --- | --- | --- |
+| `SESSION_TTL_SECONDS` | `28800` (8 h) | Duración de la sesión y `Max-Age` de la cookie |
+| `SESSION_COOKIE_SECURE` | `false` | Marca la cookie como `Secure`; activarlo detrás de HTTPS (con `false` el arranque avisa con un WARNING) |
+| `LOGIN_MAX_FAILURES_PER_ACCOUNT` | `5` | Fallos de login permitidos por email dentro de la ventana |
+| `LOGIN_MAX_FAILURES_PER_IP` | `20` | Fallos de login permitidos por IP del cliente dentro de la ventana |
+| `LOGIN_THROTTLE_WINDOW_SECONDS` | `900` | Ventana deslizante del límite; pasado ese tiempo se puede reintentar |
+
+Mientras un usuario tiene contraseña temporal (`must_change_password: true`) toda ruta autenticada
+responde `403` (campo `password`), salvo `GET /auth/me`, `POST /auth/password` y `POST /auth/logout`;
+al cambiar la contraseña se limpia la marca. El límite de intentos de login es por proceso (memoria):
+vale para una sola instancia de la API; un login correcto reinicia el contador de la cuenta, no el de
+la IP. Detrás de un proxy la IP vista es la del proxy.
+
 ## Lotes
 
 Un lote es una cerveza en un tanque, con sus rangos objetivo. Ciclo de vida: `planned` → `active`

@@ -96,3 +96,50 @@ def test_alert_thresholds_are_configurable_through_the_environment(
 def test_alert_thresholds_must_be_positive(name: str, value: int) -> None:
     with pytest.raises(ValidationError, match=name):
         Settings(**{name: value})
+
+
+def test_session_settings_default_to_eight_hours_and_an_insecure_cookie_for_local_dev() -> None:
+    settings = Settings()
+    assert settings.session_ttl_seconds == 8 * 3600
+    assert settings.session_cookie_secure is False
+
+
+def test_session_settings_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSION_TTL_SECONDS", "600")
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "true")
+    settings = Settings()
+    assert (settings.session_ttl_seconds, settings.session_cookie_secure) == (600, True)
+
+
+def test_session_ttl_must_be_positive() -> None:
+    with pytest.raises(ValueError):
+        Settings(session_ttl_seconds=0)
+
+
+def test_login_throttle_defaults_and_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    defaults = Settings()
+    assert (
+        defaults.login_max_failures_per_account,
+        defaults.login_max_failures_per_ip,
+        defaults.login_throttle_window_seconds,
+    ) == (5, 20, 15 * 60)
+    monkeypatch.setenv("LOGIN_MAX_FAILURES_PER_ACCOUNT", "3")
+    monkeypatch.setenv("LOGIN_THROTTLE_WINDOW_SECONDS", "60")
+    settings = Settings()
+    assert (settings.login_max_failures_per_account, settings.login_throttle_window_seconds) == (
+        3,
+        60,
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "login_max_failures_per_account",
+        "login_max_failures_per_ip",
+        "login_throttle_window_seconds",
+    ],
+)
+def test_login_throttle_settings_must_be_positive(name: str) -> None:
+    with pytest.raises(ValidationError, match=name):
+        Settings(**{name: 0})

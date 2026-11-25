@@ -111,3 +111,39 @@ async def test_ensure_does_not_rewrite_the_row_when_seen_at_is_not_earlier(
     async with engine.connect() as conn:
         after = await conn.scalar(text("SELECT xmin::text FROM tanks WHERE id = 'tank-1'"))
     assert after == before
+
+
+async def test_set_display_name_updates_only_the_name_and_can_clear_it(
+    tank_repository: SqlAlchemyTankRepository,
+) -> None:
+    await tank_repository.ensure("tank-1", T0)
+
+    assert await tank_repository.set_display_name("tank-1", "Fermenter 1") is True
+    named = await tank_repository.get("tank-1")
+    assert named is not None
+    assert (named.display_name, named.first_seen_at) == ("Fermenter 1", T0)
+
+    assert await tank_repository.set_display_name("tank-1", None) is True
+    cleared = await tank_repository.get("tank-1")
+    assert cleared is not None
+    assert cleared.display_name is None
+
+
+async def test_set_display_name_of_an_unknown_tank_is_false_and_creates_nothing(
+    tank_repository: SqlAlchemyTankRepository,
+) -> None:
+    assert await tank_repository.set_display_name("nope", "Fermenter 1") is False
+    assert await tank_repository.get("nope") is None
+
+
+async def test_ensure_never_overwrites_a_name_that_was_set(
+    tank_repository: SqlAlchemyTankRepository,
+) -> None:
+    await tank_repository.ensure("tank-1", T0 + timedelta(hours=1))
+    await tank_repository.set_display_name("tank-1", "Fermenter 1")
+
+    await tank_repository.ensure("tank-1", T0)  # earlier reading: rewrites first_seen_at only
+
+    tank = await tank_repository.get("tank-1")
+    assert tank is not None
+    assert (tank.display_name, tank.first_seen_at) == ("Fermenter 1", T0)

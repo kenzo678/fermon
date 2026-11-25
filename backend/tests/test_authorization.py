@@ -144,13 +144,16 @@ WRITES = [
     ("POST", "/batches/x/lab-analyses"),
 ]
 
+# Plant configuration: admin only, so a brewer is refused too.
+ADMIN_ONLY_WRITES = [("PATCH", "/tanks/x")]
+
 
 @pytest.fixture
 def role_app() -> FastAPI:
     return sign_in_fake_sessions(create_app())
 
 
-@pytest.mark.parametrize(("method", "path"), WRITES)
+@pytest.mark.parametrize(("method", "path"), WRITES + ADMIN_ONLY_WRITES)
 async def test_a_viewer_cannot_write(role_app: FastAPI, method: str, path: str) -> None:
     async with AsyncClient(transport=ASGITransport(app=role_app), base_url="http://test") as c:
         response = await c.request(
@@ -163,7 +166,7 @@ async def test_a_viewer_cannot_write(role_app: FastAPI, method: str, path: str) 
     }
 
 
-@pytest.mark.parametrize(("method", "path"), WRITES)
+@pytest.mark.parametrize(("method", "path"), WRITES + ADMIN_ONLY_WRITES)
 async def test_an_anonymous_caller_cannot_write(role_app: FastAPI, method: str, path: str) -> None:
     async with AsyncClient(transport=ASGITransport(app=role_app), base_url="http://test") as c:
         response = await c.request(
@@ -173,6 +176,18 @@ async def test_an_anonymous_caller_cannot_write(role_app: FastAPI, method: str, 
     assert response.status_code == 401, response.text
 
 
+@pytest.mark.parametrize(("method", "path"), ADMIN_ONLY_WRITES)
+async def test_a_brewer_cannot_configure_the_plant(
+    role_app: FastAPI, method: str, path: str
+) -> None:
+    async with AsyncClient(transport=ASGITransport(app=role_app), base_url="http://test") as c:
+        response = await c.request(
+            method, path, headers={**CSRF_HEADERS, **role_headers(Role.BREWER)}
+        )
+
+    assert response.status_code == 403, response.text
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [
@@ -180,6 +195,7 @@ async def test_an_anonymous_caller_cannot_write(role_app: FastAPI, method: str, 
         ("POST", "/auth/logout"),
         ("PUT", "/quality-profiles/x/specs/bright_beer/ph"),
         ("POST", "/users"),
+        ("PATCH", "/tanks/x"),
     ],
 )
 async def test_unsafe_methods_without_the_csrf_header_get_403(

@@ -3,16 +3,24 @@ from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from fermon.fermentation.application import GetTank, IngestReading, IngestReadingCommand, ListTanks
+from fermon.fermentation.application import (
+    GetTank,
+    IngestReading,
+    IngestReadingCommand,
+    ListTanks,
+    RenameTank,
+)
 from fermon.fermentation.domain import Alert, AlertKind, AlertStatus, MeasurementType
 from fermon.fermentation.infrastructure.http.dependencies import (
     get_get_tank,
     get_ingest_reading,
     get_list_tanks,
+    get_rename_tank,
 )
 from fermon.main import create_app
 from tests.auth_helpers import CSRF_HEADERS, role_headers, sign_in_fake_sessions
@@ -35,6 +43,9 @@ async def client() -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(readings, tanks)
     app.dependency_overrides[get_list_tanks] = lambda: ListTanks(tanks, readings, batches, alerts)
     app.dependency_overrides[get_get_tank] = lambda: GetTank(tanks, readings, batches, alerts)
+    app.dependency_overrides[get_rename_tank] = lambda: RenameTank(
+        tanks, GetTank(tanks, readings, batches, alerts)
+    )
     ingest = IngestReading(readings, tanks)
     for tank, measurement, value, at in [
         ("tank-2", MeasurementType.ALCOHOL, 4.0, T0),
@@ -134,3 +145,87 @@ async def test_a_viewer_can_read_tanks(client: AsyncClient) -> None:
     response = await client.get("/tanks", headers=role_headers("viewer"))
 
     assert response.status_code == 200
+
+
+async def test_admin_renames_a_tank_and_gets_the_same_shape(client: AsyncClient) -> None:
+    response = await client.patch(
+        "/tanks/tank-1", json={"display_name": "  Fermenter 1 "}, headers=role_headers("admin")
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {**TANK_1, "display_name": "Fermenter 1"}
+    assert (await client.get("/tanks/tank-1")).json()["display_name"] == "Fermenter 1"
+    listed = {t["id"]: t["display_name"] for t in (await client.get("/tanks")).json()}
+    assert listed == {"tank-1": "Fermenter 1", "tank-2": None}
+
+
+async def test_a_null_display_name_clears_the_name(client: AsyncClient) -> None:
+    headers = role_headers("admin")
+    await client.patch("/tanks/tank-1", json={"display_name": "Fermenter 1"}, headers=headers)
+
+    response = await client.patch("/tanks/tank-1", json={"display_name": None}, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["display_name"] is None
+
+
+@pytest.mark.parametrize("role", ["viewer", "brewer"])
+async def test_only_an_admin_can_rename_a_tank(client: AsyncClient, role: str) -> None:
+    response = await client.patch(
+        "/tanks/tank-1", json={"display_name": "Fermenter 1"}, headers=role_headers(role)
+    )
+
+    assert response.status_code == 403
+    assert (await client.get("/tanks/tank-1")).json()["display_name"] is None
+
+
+async def test_renaming_without_a_session_is_401(client: AsyncClient) -> None:
+    response = await client.patch(
+        "/tanks/tank-1", json={"display_name": "Fermenter 1"}, headers=role_headers("anonymous")
+    )
+
+    assert response.status_code == 401
+
+
+async def test_renaming_an_unknown_tank_returns_404_on_tank_id(client: AsyncClient) -> None:
+    response = await client.patch(
+        "/tanks/nope", json={"display_name": "Fermenter 1"}, headers=role_headers("admin")
+    )
+
+    assert response.status_code == 404
+    [error] = response.json()["detail"]
+    assert error == {"field": "tank_id", "message": "tank 'nope' not found"}
+
+
+@pytest.mark.parametrize("name", ["", "   ", "a" * 65])
+async def test_renaming_to_an_empty_or_too_long_name_returns_422(
+    client: AsyncClient, name: str
+) -> None:
+    response = await client.patch(
+        "/tanks/tank-1", json={"display_name": name}, headers=role_headers("admin")
+    )
+
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["field"] == "display_name"
+
+
+@pytest.mark.parametrize(
+    "body", [{"display_name": "Fermenter 1", "id": "x"}, {}, {"display_name": 5}]
+)
+async def test_renaming_rejects_unknown_missing_or_mistyped_fields(
+    client: AsyncClient, body: dict[str, Any]
+) -> None:
+    response = await client.patch("/tanks/tank-1", json=body, headers=role_headers("admin"))
+
+    assert response.status_code == 422
+
+
+async def test_renaming_requires_the_csrf_header(client: AsyncClient) -> None:
+    client.headers.pop("X-Requested-With")
+
+    response = await client.patch(
+        "/tanks/tank-1", json={"display_name": "Fermenter 1"}, headers=role_headers("admin")
+    )
+
+    assert response.status_code == 403

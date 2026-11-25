@@ -28,6 +28,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     ListBatchesDep,
     ListReadingsDep,
     ListTanksDep,
+    RenameTankDep,
     StartBatchDep,
     UpdateBatchDep,
 )
@@ -42,13 +43,15 @@ from fermon.fermentation.infrastructure.http.schemas import (
     ErrorResponse,
     ReadingOut,
     TankOut,
+    TankPatch,
 )
-from fermon.identity.domain import can_acknowledge_alerts, can_write_batches
+from fermon.identity.domain import can_acknowledge_alerts, can_configure_tanks, can_write_batches
 from fermon.identity.infrastructure.http.dependencies import require_permission
 
 router = APIRouter()
 
 WRITE_BATCHES = [Depends(require_permission(can_write_batches))]
+CONFIGURE_TANKS = [Depends(require_permission(can_configure_tanks))]
 ACKNOWLEDGE_ALERTS = [Depends(require_permission(can_acknowledge_alerts))]
 
 
@@ -65,6 +68,19 @@ async def list_tanks(use_case: ListTanksDep) -> list[TankOut]:
 async def get_tank(tank_id: str, use_case: GetTankDep) -> TankOut:
     """One tank with its latest reading per measurement; 404 if it was never registered."""
     return TankOut.from_domain(await use_case.execute(tank_id))
+
+
+@router.patch(
+    "/tanks/{tank_id}",
+    dependencies=CONFIGURE_TANKS,
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def rename_tank(tank_id: str, body: TankPatch, use_case: RenameTankDep) -> TankOut:
+    """Set the display name (trimmed, 1-64 characters) or clear it with null. Admin only.
+
+    Last write wins: the name has no version. Returns the same shape as `GET /tanks/{id}`.
+    """
+    return TankOut.from_domain(await use_case.execute(tank_id, body.display_name))
 
 
 @router.get(

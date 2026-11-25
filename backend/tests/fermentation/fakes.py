@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -132,6 +133,13 @@ class InMemoryTankRepository:
 
     async def list(self) -> list[Tank]:
         return sorted(self.tanks.values(), key=lambda t: t.id)
+
+    async def set_display_name(self, tank_id: str, display_name: str | None) -> bool:
+        current = self.tanks.get(tank_id)
+        if current is None:
+            return False
+        self.tanks[tank_id] = replace(current, display_name=display_name)
+        return True
 
 
 class InMemoryBatchRepository:

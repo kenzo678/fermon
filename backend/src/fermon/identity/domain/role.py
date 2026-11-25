@@ -32,5 +32,10 @@ def can_record_lab_analyses(role: Role) -> bool:
     return role in _BREWING
 
 
+def can_configure_tanks(role: Role) -> bool:
+    # Naming a tank is plant configuration, so it is stricter than the brewing writes.
+    return role is Role.ADMIN
+
+
 def can_download_reports(role: Role) -> bool:
     return True

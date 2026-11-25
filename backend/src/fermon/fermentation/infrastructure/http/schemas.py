@@ -243,6 +243,14 @@ class AlertEventOut(BaseModel):
     alert: AlertOut
 
 
+class TankPatch(BaseModel):
+    """Rename a tank: a display name (trimmed, 1-64 characters) or null to clear it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None
+
+
 class TankOut(BaseModel):
     id: str
     display_name: str | None

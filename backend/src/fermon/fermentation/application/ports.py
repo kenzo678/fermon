@@ -98,6 +98,10 @@ class TankRepository(Protocol):
         """All registered tanks, sorted by id."""
         ...
 
+    async def set_display_name(self, tank_id: str, display_name: str | None) -> bool:
+        """Set (or clear, with None) the display name only; False if the tank is not registered."""
+        ...
+
 
 class LabAnalysisRepository(Protocol):
     async def add(self, analysis: LabAnalysis) -> None:

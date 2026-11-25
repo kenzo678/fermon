@@ -148,11 +148,16 @@ ingesta registra el tanque antes de guardar la lectura.
 | --- | --- |
 | `GET /tanks` | Lista de tanques ordenada por `id`, cada uno con su última lectura por medición |
 | `GET /tanks/{tank_id}` | Un tanque con la misma forma; `404` si nunca se registró |
+| `PATCH /tanks/{tank_id}` | Pone o borra el nombre visible (`display_name`); solo `admin`; devuelve la forma de `GET /tanks/{tank_id}` |
 | `GET /tanks/{tank_id}/readings?start=&end=` | Lecturas crudas del rango `[start, end)` |
 
 ```sh
 curl -b cookies.txt localhost:8000/tanks
 curl -b cookies.txt localhost:8000/tanks/tank-1
+# Renombrar (solo admin; los cambios exigen la cookie y X-Requested-With: fermon). null borra el nombre.
+curl -b cookies.txt -X PATCH localhost:8000/tanks/tank-1 \
+  -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
+  -d '{"display_name": "Fermenter 1"}'
 ```
 
 ```json
@@ -175,7 +180,9 @@ curl -b cookies.txt localhost:8000/tanks/tank-1
 del lote activo del tanque (ver [Lotes](#lotes)) o `null`. `open_alerts` es la cantidad de alertas
 sin resolver (`open` + `acknowledged`) del tanque (ver [Alertas](#alertas)). Los errores usan la forma
 unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido, `422` para un
-`tank_id` en blanco). Todos los instantes se devuelven en UTC.
+`tank_id` en blanco). El nombre se recorta y debe tener de 1 a 64 caracteres (`422` sobre
+`display_name` si queda vacío, es más largo o llega un campo desconocido); un `viewer` o `brewer` recibe `403`. Gana la última escritura
+(el nombre no tiene versión) y la primera lectura de un tanque nunca pisa un nombre ya puesto. Todos los instantes se devuelven en UTC.
 
 ### CORS
 
@@ -196,7 +203,7 @@ La API tiene usuarios con roles y sesiones del lado del servidor. Todo exige ini
 
 | Rol | Permisos |
 | --- | --- |
-| `admin` | Todo, incluida la gestión de usuarios |
+| `admin` | Todo, incluidas la gestión de usuarios y la configuración de planta (renombrar tanques) |
 | `brewer` | Crear, editar, iniciar y finalizar lotes; reconocer alertas; crear perfiles y especificaciones de calidad; registrar análisis de laboratorio; descargar reportes |
 | `viewer` | Solo lectura (tanques, lecturas, lotes, alertas, perfiles, análisis) y descarga de reportes |
 

@@ -54,7 +54,7 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
   Incluye lo que entró a main después de empezar (PRs #10–#14): perfiles de calidad
   (`/quality-profiles`, `PUT|DELETE .../specs`, `evaluate`) y análisis (`POST /batches/{id}/lab-analyses`)
   quedan como escritura de admin/brewer; sus `GET` y los catálogos, lectura con sesión.
-- [ ] T3 — Frontend de auth: login, sesión, rutas protegidas, UI según rol, cambio de contraseña,
+- [x] T3 — Frontend de auth: login, sesión, rutas protegidas, UI según rol, cambio de contraseña,
   página de usuarios; e2e actualizados.
 - [ ] T4 — Reportes en el backend: cálculo determinista, PDF (WeasyPrint) y CSV.
 - [ ] T5 — Reportes en el frontend + e2e; PR.
@@ -130,5 +130,42 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
   (sin RED propio). GREEN: backend 911 passed (base 813); ruff, format y mypy OK. El frontend y sus e2e
   quedan rotos hasta T3 (esperado).
 
+- T3 completada (ruta: delegada (escritor único)). Cliente API con `credentials: 'include'`, `X-Requested-With`
+  solo en POST/PATCH (los GET no lo necesitan: evita preflights) y `apiSendEmpty` para los 204; `ApiError`
+  con `retryAfterSeconds`. Módulo `features/auth` (`useSession` sobre `/auth/me`, 401 = `null`; login, logout,
+  cambio de contraseña; `RequireAuth`, `RequirePermission`, `AccountMenu`) y `permissions.ts` que refleja
+  `identity/domain/role.py`. `createQueryClient` revalida la sesión ante un 401 o un 403 con field `password`
+  (se pregunta a `/auth/me`: un 401 por contraseña actual errónea no cierra la sesión); logout y login
+  descartan toda la caché. Rutas: `/login` (vuelve a la página pedida, solo rutas internas), `/account/password`
+  (un usuario con contraseña temporal queda confinado ahí, sin menú ni socket de alertas), `/users` y
+  `/batches/new` con "Not allowed". UI por rol: viewer sin New batch, Start a batch, Start/Finish/Save ni
+  Acknowledge (no existe UI de perfiles de calidad ni de análisis: nada que ocultar); página *Users*
+  (lista, crear con contraseña temporal, rol, activar/desactivar, reset; errores 409/422). WebSocket: 4401 es
+  terminal y revalida la sesión. e2e: servicio `e2e-admin` (admin sin contraseña temporal, repetible), el
+  `globalSetup` entra una vez y guarda `storageState`; `frontend-e2e` sirve la API en `/api` por proxy de Vite
+  porque la cookie `SameSite=Lax` no viaja entre `frontend-e2e` y `api` (sitios distintos); `auth.spec.ts`
+  (login/redirección, error genérico, logout, admin crea viewer -> cambio forzado -> solo lectura).
+  Evidencia TDD: RED = `apiSendEmpty is not a function` y 7 fallos de `client.test.ts` (credentials, header,
+  Retry-After); imports inexistentes (`./permissions`, `./api`, `./LoginPage`, `./RequireAuth`, `UsersPage`);
+  3 fallos de `AppShell` (nav/account); 5 de viewer (`controles de escritura visibles para el viewer); 4401
+  (`expected 'reconnecting' to be 'unauthorized'`); 9 de `AppRoutes authentication`. `formErrors` se escribió
+  con su test en el mismo paso (sin RED observado). GREEN: frontend 374 passed (base 283); lint, typecheck y
+  build OK; backend 913 (sin cambios); e2e 23 passed + 1 omitido (el flujo de usuarios solo en escritorio),
+  repetido una segunda vez para comprobar que `e2e-admin` es idempotente. El WebSocket de desarrollo directo
+  (`localhost:5173` -> `localhost:8000`) no se probó en un navegador: se apoya en que las cookies no
+  distinguen puertos y en que `localhost:5173` está en `CORS_ORIGINS` por defecto. Restos en la base dev:
+  `e2e-admin@example.com`, usuarios `viewer-*@example.com` y lotes planificados "Viewer check *" en `tank-1`.
+
+- 2026-11-24: revisión RDD de T3 (4 lentes, riesgo alto) aprobada y reconocida. Deuda no bloqueante:
+  - `e2e-admin` escribe en la base dev con una contraseña pública y oculta errores (`|| echo`); usar una
+    base propia para e2e antes de cualquier despliegue compartido.
+  - Si `/auth/me` falla (no 401), `RequireAuth` reemplaza toda la app por un error con reintento.
+  - Tras un cierre 4401 los sockets no se recuperan solos al volver a iniciar sesión sin recargar.
+  - Si el logout falla en red, la UI muestra la sesión cerrada pero la cookie sigue válida.
+  - El test e2e de contraseña incorrecta suma un intento al limitador (riesgo de flake si se repite
+    más de 5 veces en 15 min sin reiniciar la API).
+  - Menores: largo mínimo de contraseña y ruta `/account/password` duplicados; `canDownloadReports`
+    oscuro; handler de 4401 duplicado en los dos hooks en vivo.
+
 ## Próximo paso
-T3: frontend de auth (login, sesión, rutas protegidas, UI según rol, cambio de contraseña, página de usuarios; e2e).
+T4: reportes en el backend (cálculo determinista, PDF con WeasyPrint y CSV).

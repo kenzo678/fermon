@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { API_URL } from "../../shared/api";
-import { makeAlert } from "../../test/fixtures";
+import { makeAlert, makeUser } from "../../test/fixtures";
 import { renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
 import { ActiveAlerts } from "./ActiveAlerts";
@@ -28,6 +28,13 @@ describe("ActiveAlerts", () => {
     expect(url?.searchParams.has("status")).toBe(false);
     // The tank is the context, so the item does not repeat it.
     expect(screen.queryByRole("link", { name: "tank-1" })).not.toBeInTheDocument();
+  });
+
+  it("shows the alerts to a viewer without the Acknowledge action", async () => {
+    server.use(http.get(`${API_URL}/alerts`, () => HttpResponse.json([makeAlert()])));
+    renderWithProviders(<ActiveAlerts tankId="tank-1" />, { user: makeUser({ role: "viewer" }) });
+    expect(await screen.findByText(/Temperature below target/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Acknowledge" })).not.toBeInTheDocument();
   });
 
   it("says so when there are none", async () => {

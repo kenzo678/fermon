@@ -11,6 +11,7 @@ import {
   startBatch,
   unresolvedAlertCount,
 } from "./batches-api";
+import { adminApiContext } from "./session";
 
 // One active batch per tank and shared tank state: these specs run one after another, and only in the
 // desktop project (the mobile one ignores this file, see playwright.config.ts): it would race for the tank.
@@ -40,13 +41,13 @@ async function navCount(page: Page): Promise<number> {
 }
 
 test.beforeAll(async ({ playwright }) => {
-  const request = await playwright.request.newContext();
+  const request = await adminApiContext(playwright);
   await releaseTank(request);
   await request.dispose();
 });
 
 test.afterAll(async ({ playwright }) => {
-  const request = await playwright.request.newContext();
+  const request = await adminApiContext(playwright);
   await releaseTank(request);
   await request.dispose();
 });

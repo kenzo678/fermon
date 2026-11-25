@@ -1,12 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { AppShell } from "./AppShell";
+import { AppShell, DEFAULT_NAV } from "./AppShell";
 
-function renderShell(children: React.ReactNode, route = "/", navBadges?: Record<string, React.ReactNode>) {
+function renderShell(
+  children: React.ReactNode,
+  route = "/",
+  navBadges?: Record<string, React.ReactNode>,
+  extra: Partial<React.ComponentProps<typeof AppShell>> = {},
+) {
   return render(
     <MemoryRouter initialEntries={[route]}>
-      <AppShell navBadges={navBadges}>{children}</AppShell>
+      <AppShell navBadges={navBadges} {...extra}>
+        {children}
+      </AppShell>
     </MemoryRouter>,
   );
 }
@@ -47,5 +54,23 @@ describe("AppShell", () => {
     renderShell("content", "/", { "/alerts": <span>3</span> });
     expect(screen.getByRole("link", { name: "Alerts 3" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Tanks" })).toBeInTheDocument();
+  });
+
+  it("renders the navigation it is given instead of the default one", () => {
+    renderShell("content", "/users", undefined, {
+      nav: [...DEFAULT_NAV, { to: "/users", label: "Users", sections: ["/users"] }],
+    });
+    expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Tanks" })).toBeInTheDocument();
+  });
+
+  it("can hide the navigation entirely (forced password change)", () => {
+    renderShell("content", "/", undefined, { nav: [] });
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+  });
+
+  it("shows the account slot inside the banner", () => {
+    renderShell("content", "/", undefined, { account: <p>Ada</p> });
+    expect(screen.getByRole("banner")).toContainElement(screen.getByText("Ada"));
   });
 });

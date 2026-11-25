@@ -13,8 +13,9 @@ either is unavailable.
 
 ### Requirement: Routes
 
-The SPA MUST serve `/` (tanks overview) and `/tanks/:tankId` (tank detail). Any other path MUST render a
-"Page not found" view. The production image MUST serve the routes on direct load and reload through the
+The SPA MUST serve `/` (tanks overview) and `/tanks/:tankId` (tank detail), plus the routes of the other
+requirements (`/login`, `/account/password`, `/users`, batches and alerts). Any other path MUST render a
+"Page not found" view (after the session check). The production image MUST serve the routes on direct load and reload through the
 nginx SPA fallback (`try_files $uri /index.html`), serving the HTML shell with `Cache-Control: no-cache` and
 the hashed assets as immutable, so a redeploy never leaves a stale shell pointing at removed chunks. The API
 base URL MUST come from `VITE_API_URL` (default `http://localhost:8000`).
@@ -243,6 +244,54 @@ applied and the simulator running.
 - WHEN the suite starts
 - THEN it fails immediately with an explanatory message
 
+### Requirement: Authentication and roles
+
+Every route except `/login` MUST require a session, checked with `GET /auth/me`. An anonymous visitor MUST be
+sent to `/login` and returned to the page they asked for after signing in (only in-app paths are honoured).
+Every API request MUST carry credentials; every POST/PATCH MUST send `X-Requested-With: fermon`. A 401 from any
+call MUST make the session be re-checked (so the user lands on `/login` when it ended); a 403 with field
+`password` MUST do the same (so the user lands on `/account/password`). A WebSocket closed with 4401 MUST NOT
+reconnect and MUST trigger the same re-check. A user with `must_change_password` MUST be confined to
+`/account/password` (no navigation, no live alerts socket) until the password is changed. Signing out and a
+new sign-in MUST discard every cached query. The header MUST show the user's name and role, a link to change
+the password and a sign-out action.
+
+Write actions MUST follow the role, mirroring the backend: `viewer` is read-only (no New batch, Start a batch,
+Start/Finish/Save on a batch, nor Acknowledge); `brewer` and `admin` can write; only `admin` sees the Users
+section (`/users`: list, create with temporary password, change role, activate/deactivate, reset password), and
+`/users` and `/batches/new` MUST show "Not allowed" to roles without access. The UI MUST surface the API's
+409 (last admin, stale version) and 422 (per field) errors.
+
+#### Scenario: Anonymous visitor
+- GIVEN no session
+- WHEN the user opens `/batches?status=active`
+- THEN `/login` is shown, and after a successful sign-in `/batches?status=active` is shown
+
+#### Scenario: Login failures
+- GIVEN the login page
+- WHEN the API answers 401 THEN "Incorrect email or password." is shown, whatever the cause
+- AND WHEN it answers 429 with `Retry-After: 900` THEN the message says to try again in 15 minutes
+
+#### Scenario: Temporary password
+- GIVEN a user created by an admin with a temporary password
+- WHEN they sign in
+- THEN they are sent to `/account/password` and cannot reach any other page until they change it
+
+#### Scenario: Viewer is read-only
+- GIVEN a signed-in `viewer`
+- WHEN they open the batches list, a batch, a tank or the alerts
+- THEN no create, edit, start, finish or acknowledge control is offered and the batch form is disabled
+
+#### Scenario: Admin manages users
+- GIVEN a signed-in `admin`
+- WHEN they open Users and create a `viewer` with a temporary password
+- THEN the user appears in the list marked "Must change password"
+
+#### Scenario: Session ends
+- GIVEN a signed-in user
+- WHEN any request answers 401 or the live socket closes with 4401
+- THEN the session is re-checked and, if it is gone, the user is sent to `/login`
+
 ## Known limitations / future work
 
 - Batch and alert UI do not exist yet: batch form (templates, start/finish), active batch on cards and
@@ -253,4 +302,5 @@ applied and the simulator running.
 - The detail chunk is about 552 kB (186 kB gzip), above Vite's chunk size warning; the main bundle is about
   300 kB (96 kB gzip) as recorded when the feature was merged.
 - The canvas rendering is verified only by e2e (jsdom has no canvas).
-- No authentication.
+- Role checks in the UI only decide what is offered; the API is the authority. There is no idle timeout
+  beyond the server session (8 h).

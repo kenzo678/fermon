@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router";
 import { describe, expect, it } from "vitest";
 import { API_URL } from "../../shared/api";
 import type { Batch, BatchTemplate } from "../../shared/api";
-import { makeBatch, makeTank } from "../../test/fixtures";
+import { makeBatch, makeTank, makeUser } from "../../test/fixtures";
 import { createTestQueryClient, renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
 import { tankKeys } from "../tanks/api";
@@ -465,5 +465,41 @@ describe("BatchesPage", () => {
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("table", { name: "Batches" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("as a viewer", () => {
+  const viewer = makeUser({ role: "viewer" });
+
+  it("sees the batches but no way to create one", async () => {
+    mockCatalog();
+    server.use(http.get(`${API_URL}/batches`, () => HttpResponse.json([makeBatch()])));
+    renderWithProviders(<Pages />, { route: "/batches", user: viewer });
+    expect(await screen.findByRole("table", { name: "Batches" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "New batch" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["planned", "Start batch"],
+    ["active", "Finish batch"],
+  ] as const)("cannot start, finish or edit a %s batch", async (status, action) => {
+    mockCatalog();
+    server.use(
+      http.get(`${API_URL}/batches/b1`, () =>
+        HttpResponse.json(makeBatch({ status, started_at: status === "active" ? "2026-03-01T10:05:00Z" : null })),
+      ),
+    );
+    renderWithProviders(<Pages />, { route: "/batches/b1", user: viewer });
+    expect(await screen.findByLabelText("Beer name")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: action })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the edit controls for a brewer", async () => {
+    mockCatalog();
+    server.use(http.get(`${API_URL}/batches/b1`, () => HttpResponse.json(makeBatch())));
+    renderWithProviders(<Pages />, { route: "/batches/b1", user: makeUser({ role: "brewer" }) });
+    expect(await screen.findByRole("button", { name: "Start batch" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
   });
 });

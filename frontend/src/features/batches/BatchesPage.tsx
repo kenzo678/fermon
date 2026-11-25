@@ -8,6 +8,7 @@ import { StatusBadge } from "./components/StatusBadge";
 import { STATUS_LABELS, STATUS_ORDER, formatTemperatureRange } from "./format";
 import { useBatchesQuery } from "./hooks";
 import type { BatchFilters } from "./api";
+import { usePermissions } from "../auth";
 
 function parseStatus(value: string | null): BatchStatus | undefined {
   return STATUS_ORDER.find((status) => status === value);
@@ -81,6 +82,7 @@ export function BatchesPage() {
 
   const batches = useBatchesQuery(filters);
   const tanks = useTanksQuery();
+  const { canWriteBatches } = usePermissions();
 
   const setFilter = (key: "tank_id" | "status", value: string) =>
     setSearchParams(
@@ -97,12 +99,14 @@ export function BatchesPage() {
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight">Batches</h2>
-        <Link
-          to="/batches/new"
-          className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
-        >
-          New batch
-        </Link>
+        {canWriteBatches && (
+          <Link
+            to="/batches/new"
+            className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+          >
+            New batch
+          </Link>
+        )}
       </div>
       <div className="flex flex-wrap gap-4">
         <div>

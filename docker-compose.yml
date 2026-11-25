@@ -121,7 +121,9 @@ services:
       context: ./frontend
       target: dev
     environment:
-      VITE_API_URL: http://api:8000
+      # Same origin as the page (proxied by Vite to the API): the session cookie is SameSite=Lax.
+      VITE_API_URL: /api
+      API_PROXY_TARGET: http://api:8000
     volumes:
       - ./frontend:/app
       - frontend-node-modules:/app/node_modules
@@ -134,6 +136,29 @@ services:
       timeout: 3s
       retries: 20
 
+  # e2e-admin: the stack starts with no users, so this creates the administrator the e2e run signs in
+  # as (no temporary password). Safe to repeat: it reports instead of failing when the admin exists.
+  # Migrations must already be applied (see the README).
+  e2e-admin:
+    profiles: ["e2e"]
+    build:
+      context: ./backend
+      target: dev
+    command:
+      - sh
+      - -c
+      - python -m fermon.identity.create_admin --email "$$E2E_ADMIN_EMAIL" --name "E2E Admin" || echo "e2e admin not created (it probably exists already)"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://fermon:fermon@timescaledb:5432/fermon}
+      E2E_ADMIN_EMAIL: ${E2E_ADMIN_EMAIL:-e2e-admin@example.com}
+      FERMON_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:-e2e-admin-password}
+    volumes:
+      - ./backend:/app
+      - api-venv:/app/.venv
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
   e2e:
     profiles: ["e2e"]
     image: mcr.microsoft.com/playwright:v1.64.1-noble
@@ -141,7 +166,8 @@ services:
     command: npx playwright test
     environment:
       E2E_BASE_URL: http://frontend-e2e:5173
-      E2E_API_URL: http://api:8000
+      E2E_ADMIN_EMAIL: ${E2E_ADMIN_EMAIL:-e2e-admin@example.com}
+      E2E_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:-e2e-admin-password}
     volumes:
       - ./frontend:/app
       - frontend-node-modules:/app/node_modules
@@ -151,6 +177,8 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+      e2e-admin:
+        condition: service_completed_successfully
 
 volumes:
   timescale-data:

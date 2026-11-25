@@ -1,8 +1,8 @@
 import { delay, http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server";
 import { ApiError } from "./errors";
-import { API_URL, apiGet, apiSend, buildUrl } from "./client";
+import { API_URL, apiGet, apiSend, apiSendEmpty, buildUrl } from "./client";
 import type { Tank } from "./types";
 
 const BASE = API_URL;
@@ -270,5 +270,85 @@ describe("apiSend", () => {
     const reason = new Error("stop");
     controller.abort(reason);
     await expect(pending).rejects.toBe(reason);
+  });
+});
+
+describe("session credentials and CSRF header", () => {
+  // MSW's Node request does not carry `credentials`, so the option is checked on the fetch call itself.
+  it("includes credentials on reads and sends no CSRF header (safe method)", async () => {
+    let header: string | null = "unset";
+    server.use(
+      http.get(`${BASE}/me`, ({ request }) => {
+        header = request.headers.get("x-requested-with");
+        return HttpResponse.json({});
+      }),
+    );
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await apiGet("/me");
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ credentials: "include" });
+    expect(header).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it.each(["POST", "PATCH"] as const)("sends X-Requested-With on %s, with and without a body", async (method) => {
+    const headers: Array<string | null> = [];
+    const handler = http.all(`${BASE}/w`, ({ request }) => {
+      headers.push(request.headers.get("x-requested-with"));
+      return HttpResponse.json({});
+    });
+    server.use(handler);
+    await apiSend(method, "/w");
+    await apiSend(method, "/w", { a: 1 });
+    expect(headers).toEqual(["fermon", "fermon"]);
+  });
+});
+
+describe("apiSendEmpty", () => {
+  it("accepts a 204 response and sends the CSRF header and credentials", async () => {
+    let seen: { header: string | null; body: unknown } | undefined;
+    server.use(
+      http.post(`${BASE}/auth/password`, async ({ request }) => {
+        seen = { header: request.headers.get("x-requested-with"), body: await request.json() };
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(apiSendEmpty("POST", "/auth/password", { a: 1 })).resolves.toBeUndefined();
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ credentials: "include" });
+    expect(seen).toEqual({ header: "fermon", body: { a: 1 } });
+    fetchSpy.mockRestore();
+  });
+
+  it("still maps errors to ApiError", async () => {
+    server.use(
+      http.post(`${BASE}/auth/logout`, () =>
+        HttpResponse.json({ detail: [{ field: null, message: "nope" }] }, { status: 403 }),
+      ),
+    );
+    await expect(apiSendEmpty("POST", "/auth/logout")).rejects.toMatchObject({ status: 403, message: "nope" });
+  });
+});
+
+describe("Retry-After", () => {
+  it("exposes the retry delay of a 429 on the ApiError", async () => {
+    server.use(
+      http.post(`${BASE}/auth/login`, () =>
+        HttpResponse.json(
+          { detail: [{ field: null, message: "too many" }] },
+          { status: 429, headers: { "Retry-After": "120" } },
+        ),
+      ),
+    );
+    const error = await apiSend("POST", "/auth/login", {}).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 429, retryAfterSeconds: 120 });
+  });
+
+  it("leaves it undefined when the header is missing or not a number", async () => {
+    server.use(
+      http.get(`${BASE}/a`, () => HttpResponse.json({}, { status: 429 })),
+      http.get(`${BASE}/b`, () => HttpResponse.json({}, { status: 429, headers: { "Retry-After": "soon" } })),
+    );
+    expect(await apiGet("/a").catch((e: unknown) => e)).toMatchObject({ retryAfterSeconds: undefined });
+    expect(await apiGet("/b").catch((e: unknown) => e)).toMatchObject({ retryAfterSeconds: undefined });
   });
 });

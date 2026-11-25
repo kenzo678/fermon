@@ -109,6 +109,7 @@ describe("createReconnectingSocket", () => {
   });
 
   it.each([
+    [4401, "unauthorized"],
     [4403, "forbidden"],
     [4404, "not_found"],
   ] as const)("does not reconnect after %i", (code, status) => {

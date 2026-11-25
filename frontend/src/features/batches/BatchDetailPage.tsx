@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../../shared/api";
 import type { Batch } from "../../shared/api";
+import { usePermissions } from "../auth";
 import { formatDateTime } from "../tanks/format";
 import { ErrorState } from "../tanks/components/ErrorState";
 import { useTanksQuery } from "../tanks/useTanksQuery";
@@ -35,6 +36,7 @@ export function BatchDetailPage() {
   const batch = useBatchQuery(batchId);
   const tanks = useTanksQuery();
   const templates = useBatchTemplatesQuery();
+  const { canWriteBatches } = usePermissions();
   // The server copy the form was last (re)started from, and whether the user has unsaved edits on it.
   const [adopted, setAdopted] = useState<Batch | null>(null);
   // This page's own successful changes: the returned copy is the new truth. It is adopted by the
@@ -104,7 +106,7 @@ export function BatchDetailPage() {
           {data.started_at !== null && <> · Started {formatDateTime(data.started_at)}</>}
           {data.finished_at !== null && <> · Finished {formatDateTime(data.finished_at)}</>}
         </p>
-        {data.status === "planned" && (
+        {canWriteBatches && data.status === "planned" && (
           <button
             type="button"
             disabled={start.isPending}
@@ -114,7 +116,8 @@ export function BatchDetailPage() {
             Start batch
           </button>
         )}
-        {data.status === "active" &&
+        {canWriteBatches &&
+          data.status === "active" &&
           (confirmingFinish ? (
             <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
               <p>Finish this batch? It will stop being monitored and can't be undone.</p>
@@ -178,7 +181,7 @@ export function BatchDetailPage() {
           submitLabel="Save changes"
           submitting={update.isPending}
           serverErrors={formErrors}
-          readOnly={data.status === "finished"}
+          readOnly={data.status === "finished" || !canWriteBatches}
           errorAction={
             update.error instanceof ApiError && update.error.status === 409 ? (
               <button

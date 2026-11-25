@@ -215,6 +215,14 @@ docker compose run --rm -e FERMON_ADMIN_PASSWORD api \
 El comando falla si el email ya existe. Los emails se normalizan a minúsculas y son únicos sin
 distinguir mayúsculas.
 
+**Entrar en la interfaz web.** Con el primer admin creado, abre `http://localhost:5173`: sin sesión la UI
+muestra `/login` (email y contraseña) y, tras entrar, vuelve a la página pedida. El admin crea al resto en
+*Users* (rol y contraseña temporal); esa persona debe cambiarla en su primer ingreso (`/account/password`,
+también accesible desde el menú de la cabecera, donde está *Sign out*). Un `viewer` solo ve datos; `brewer`
+y `admin` pueden crear y editar lotes y reconocer alertas; *Users* solo aparece para `admin`. En desarrollo
+la UI (`localhost:5173`) y la API (`localhost:8000`) son del mismo sitio para el navegador (las cookies no
+distinguen puertos), así que la cookie `SameSite=Lax` viaja también al WebSocket.
+
 | Endpoint | Descripción |
 | --- | --- |
 | `POST /auth/login` | `{email, password}` → `200 {user}` y cookie `fermon_session`; `401` genérico si falla; `429` con `Retry-After` tras demasiados fallos |
@@ -721,11 +729,19 @@ propios lotes en `tank-1` (a veces por la API), los finaliza al terminar y corre
 el proyecto de escritorio, porque un tanque admite un único lote activo y el proyecto móvil
 competiría por él. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
 
+La API exige sesión, así que el servicio `e2e-admin` (perfil `e2e`) crea un administrador
+(`e2e-admin@example.com`, contraseña `E2E_ADMIN_PASSWORD`, por defecto `e2e-admin-password`; sin contraseña
+temporal) antes de las pruebas; es repetible (si ya existe lo informa y sigue). El `globalSetup` entra una vez
+con él y guarda la sesión en `frontend/e2e/.auth/admin.json` (ignorado por git), que usan todos los specs
+(`storageState`); `auth.spec.ts` entra a mano. La cookie es `SameSite=Lax`, y `frontend-e2e` y `api` son
+sitios distintos para el navegador, así que `frontend-e2e` sirve la API en `/api` de su propio origen (proxy
+de Vite hacia `API_PROXY_TARGET`, `VITE_API_URL=/api`); los ayudantes de API de los specs usan la misma ruta.
+
 Prerrequisitos: migraciones aplicadas y simulador activo (las pruebas esperan tank-1 y tank-2 con
 lecturas). El servicio `e2e` espera a que `api` y `frontend-e2e` respondan (healthchecks) y un
 `globalSetup` espera hasta 90 s a que existan lecturas de tank-1 y tank-2; si no, falla con un mensaje
 claro. `frontend-e2e` es una copia de `frontend`
-con `VITE_API_URL=http://api:8000`, una dirección alcanzable desde ese navegador; el `frontend`
+con `VITE_API_URL=/api` (proxy de Vite hacia `http://api:8000`, ver arriba); el `frontend`
 normal sigue usando `localhost`. La API acepta el origen `http://frontend-e2e:5173` por defecto en
 `CORS_ORIGINS`; si defines esa variable en `.env`, incluye ese origen. Las trazas de las pruebas
 fallidas quedan en `frontend/test-results/`.

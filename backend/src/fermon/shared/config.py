@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     login_max_failures_per_account: int = Field(default=5, gt=0)
     login_max_failures_per_ip: int = Field(default=20, gt=0)
     login_throttle_window_seconds: int = Field(default=15 * 60, gt=0)
+    # Batch reports: a silence between two readings longer than this is not counted as in range.
+    report_max_gap_seconds: int = Field(default=600, gt=0)
     # Where the ingestor finds Alembic's config; override when not running from the source tree.
     alembic_ini_path: Path = DEFAULT_ALEMBIC_INI_PATH
     # Origins allowed to call the API from a browser. NoDecode: the env value is a plain

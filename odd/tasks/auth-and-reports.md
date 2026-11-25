@@ -56,7 +56,7 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
   quedan como escritura de admin/brewer; sus `GET` y los catálogos, lectura con sesión.
 - [x] T3 — Frontend de auth: login, sesión, rutas protegidas, UI según rol, cambio de contraseña,
   página de usuarios; e2e actualizados.
-- [ ] T4 — Reportes en el backend: cálculo determinista, PDF (WeasyPrint) y CSV.
+- [x] T4 — Reportes en el backend: cálculo determinista, PDF (WeasyPrint) y CSV.
 - [ ] T5 — Reportes en el frontend + e2e; PR.
 
 ## Criterios de aceptación
@@ -167,5 +167,32 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
   - Menores: largo mínimo de contraseña y ruta `/account/password` duplicados; `canDownloadReports`
     oscuro; handler de 4401 duplicado en los dos hooks en vivo.
 
+- T4 completada (ruta: delegada (escritor único)). Dominio puro `domain/report.py` (`build_batch_report`,
+  `in_range_percent`, `downsample`) y caso de uso `BuildBatchReport` (agregados de 1 minuto de
+  `readings_1m` en `[started_at, finished_at | ahora]`, alertas, análisis y perfil). % en rango ponderado por
+  tiempo: cada muestra mantiene su valor hasta la siguiente, con tope `REPORT_MAX_GAP_SECONDS` (600 s); un
+  silencio mayor no cuenta como en rango ni como tiempo observado; sin objetivo (alcohol) es `null`. ABV
+  esperado lineal de 0 a `expected_final_abv` en `expected_end`. Lote activo = parcial ("Partial (batch in
+  progress)"); `planned` = 409 `status`; desconocido = 404 `batch_id`. PDF con Jinja2 + WeasyPrint y gráficos
+  SVG propios (`svg_chart.py`, sin matplotlib ni JS); CSV único con secciones de resumen y estadísticas
+  (con neutralización de fórmulas). Endpoints `GET /batches/{id}/report.pdf|csv` bajo la sesión de router
+  (cualquier rol); PDF en `asyncio.to_thread`. `Dockerfile` instala pango/harfbuzz/fuentes (dev y prod,
+  verificado con un PDF en la imagen prod). README "Reportes" y spec `openspec/specs/batch-reports`.
+  Evidencia TDD: RED = `ImportError: cannot import name 'build_batch_report'`, `... 'BuildBatchReport'`,
+  `ModuleNotFoundError: ...infrastructure.reporting` y `ImportError: ... 'get_build_batch_report'`; GREEN:
+  backend 981 passed (base 913); ruff, format y mypy OK. Sin RED propio: el ajuste de `Settings`
+  (`report_max_gap_seconds`) y los retoques visuales del SVG. Humo: PDF de un lote real de la base dev
+  generado con el caso de uso. Dependencias (`weasyprint`, `jinja2`) en `pyproject.toml` y `uv.lock`, para
+  commit propio. Deuda: la alerta no guarda quién la reconoció (el reporte muestra solo cuándo); el % usa el
+  promedio del minuto (un minuto con picos cuenta por su promedio); sin caché del PDF.
+
+- 2026-11-24: revisión RDD de T4 (`3886668` + `93093cd`, 4 lentes, riesgo alto) aprobada y reconocida;
+  smoke real por HTTP con cookie contra la base dev (PDF y CSV, 200). Deuda no bloqueante:
+  - El render de PDF no tiene límite de concurrencia ni caché; WeasyPrint se importa al arrancar.
+  - El último minuto de un lote finalizado puede quedar fuera por el borde del bucket de `readings_1m`.
+  - La nota del ABV esperado puede confundir si `expected_end` cae antes del fin real; guardas de
+    ventana duplicadas; menores de nombres y tests.
+  - Las alertas muestran cuándo se reconocieron, no quién (no se guarda el usuario).
+
 ## Próximo paso
-T4: reportes en el backend (cálculo determinista, PDF con WeasyPrint y CSV).
+T5: reportes en el frontend (descarga PDF/CSV desde el detalle del lote) + e2e; PR.

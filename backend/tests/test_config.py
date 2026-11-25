@@ -173,3 +173,9 @@ def test_a_wildcard_cors_origin_is_rejected_because_cookies_are_sent(
     monkeypatch.setenv("CORS_ORIGINS", raw)
     with pytest.raises(ValidationError, match="CORS_ORIGINS"):
         Settings()
+
+
+def test_report_gap_cap_defaults_to_ten_minutes_and_must_be_positive() -> None:
+    assert Settings().report_max_gap_seconds == 600
+    with pytest.raises(ValidationError):
+        Settings(report_max_gap_seconds=0)

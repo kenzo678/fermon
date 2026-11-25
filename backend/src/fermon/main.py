@@ -11,6 +11,7 @@ from fermon.fermentation.infrastructure.http.ingestion_router import (
 )
 from fermon.fermentation.infrastructure.http.lab_router import router as lab_router
 from fermon.fermentation.infrastructure.http.quality_router import router as quality_router
+from fermon.fermentation.infrastructure.http.report_router import router as report_router
 from fermon.fermentation.infrastructure.http.router import router as fermentation_router
 from fermon.fermentation.infrastructure.http.websocket import router as websocket_router
 from fermon.fermentation.infrastructure.realtime import RealtimeBroadcaster, listen_dsn
@@ -66,6 +67,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_account_failures=resolved_settings.login_max_failures_per_account,
         max_ip_failures=resolved_settings.login_max_failures_per_ip,
     )
+    app.state.report_max_gap = timedelta(seconds=resolved_settings.report_max_gap_seconds)
     app.state.device_api_keys = resolved_settings.device_api_keys
     app.state.cors_origins = cors_origins  # also enforced on WebSocket handshakes
     app.add_middleware(
@@ -85,6 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(fermentation_router, dependencies=session_routes)
     app.include_router(quality_router, dependencies=session_routes)
     app.include_router(lab_router, dependencies=session_routes)
+    app.include_router(report_router, dependencies=session_routes)  # read-only: any role
     # Devices authenticate with an API key instead of a session cookie, so there is no CSRF risk.
     app.include_router(ingestion_router, dependencies=[Depends(require_device_key)])
     app.include_router(websocket_router)  # authenticates the handshake itself (close code 4401)

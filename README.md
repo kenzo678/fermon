@@ -264,6 +264,7 @@ todas las rutas de la aplicación y falla si alguna nueva queda sin protección.
 | Acción | `viewer` | `brewer` | `admin` |
 | --- | :---: | :---: | :---: |
 | Leer tanques, lecturas, lotes, alertas, perfiles y análisis; `POST /quality-profiles/{id}/evaluate` | sí | sí | sí |
+| Descargar reportes de lote (`/batches/{id}/report.pdf`, `.csv`) | sí | sí | sí |
 | Crear/editar/iniciar/finalizar lotes (`/batches`) | no | sí | sí |
 | Reconocer alertas (`POST /alerts/{id}/acknowledge`) | no | sí | sí |
 | Crear perfiles de calidad y `PUT`/`DELETE` de especificaciones | no | sí | sí |
@@ -428,6 +429,56 @@ curl -X POST localhost:8000/batches/<id>/lab-analyses -b cookies.txt -H 'X-Reque
 
 Todavía no se puede editar ni borrar un análisis (una corrección se registra como un análisis nuevo), y
 los parámetros derivados por fórmula (p. ej. color = absorbancia × 25) se cargan ya calculados.
+
+## Reportes
+
+Cada lote `active` o `finished` se puede descargar como PDF o CSV; un lote `planned` responde `409` (`field:
+"status"`) y uno desconocido `404` (`field: "batch_id"`). Cualquier rol con sesión puede descargarlos
+(también `viewer`); el reporte es determinista, sin IA, y sale de los mismos datos que ven el panel y la API.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /batches/{id}/report.pdf` | `application/pdf`, A4, adjunto `batch-<cerveza>-<fecha>.pdf` |
+| `GET /batches/{id}/report.csv` | `text/csv`, adjunto `batch-<cerveza>-<fecha>.csv` |
+
+La fecha del nombre es la de generación (UTC). Un lote activo da un reporte **parcial**, marcado
+«Partial (batch in progress)» y calculado hasta el momento de la descarga; uno finalizado cubre de
+`started_at` a `finished_at`.
+
+**Contenido del PDF** (plantilla HTML con Jinja2, impresa con WeasyPrint; los gráficos son SVG en línea
+generados en Python, sin JavaScript ni librerías de gráficos): datos del lote (cerveza, estilo, tanque,
+estado, perfil de calidad, inicio, fin o fin esperado, duración), estadísticas por medición (lecturas, mín,
+máx, promedio, primer y último valor, rango objetivo y % de tiempo en rango), gráficos de temperatura,
+presión y ABV frente al esperado con el rango objetivo sombreado, alertas del lote (tipo, medición,
+apertura, reconocimiento, resolución, duración y motivo) y análisis de laboratorio con el estado guardado
+de cada valor. Pie con la fecha de generación y el número de página. El **CSV** es una sola tabla plana:
+una sección de resumen del lote y una de estadísticas por medición (sin series, alertas ni análisis).
+
+**Resolución.** Las estadísticas salen de los agregados de **1 minuto** (`readings_1m`), no de las lecturas
+crudas: una fermentación de semanas son millones de muestras. Por eso `count` suma las lecturas, `min` y
+`max` son exactos, el promedio se pondera por lecturas y «primer» y «último» valor son el promedio del
+primer y del último minuto con datos. Los gráficos reducen cada serie a un máximo de 240 puntos (intervalos
+iguales de minutos enteros, promedio ponderado).
+
+**% de tiempo en rango.** Cada muestra (minuto) mantiene su valor hasta la siguiente y aporta
+`min(tiempo hasta la siguiente muestra, REPORT_MAX_GAP_SECONDS)`; la última, hasta el fin del reporte con el
+mismo tope. Un silencio mayor al tope (por defecto 600 s = 10 min) **no cuenta como en rango**, y tampoco
+como tiempo observado: el porcentaje es «del tiempo observado». Está en rango si `mín <= valor <= máx` del
+objetivo del lote (un límite ausente no acota). Sin objetivo, el % es `null` en el CSV y `-` en el PDF: es
+el caso del alcohol, que solo muestra progreso.
+
+**ABV frente al esperado.** Modelo lineal: 0 % al iniciar y `expected_final_abv` en `expected_end`, plano
+después. Sin `expected_end` o sin `expected_final_abv` no se dibuja la curva esperada.
+
+```sh
+curl -b cookies.txt -OJ localhost:8000/batches/<id>/report.pdf
+curl -b cookies.txt -OJ localhost:8000/batches/<id>/report.csv
+```
+
+`REPORT_MAX_GAP_SECONDS` (por defecto `600`) es el tope de silencio. El PDF necesita Pango y una fuente
+del sistema: el `Dockerfile` los instala (`libpango-1.0-0`, `libpangoft2-1.0-0`, `libharfbuzz-subset0`,
+`fonts-dejavu-core`) tanto en `dev` como en `prod`. Limitaciones: la alerta no guarda quién la reconoció,
+así que el reporte solo muestra cuándo; la generación del PDF es síncrona en un hilo aparte y no se cachea.
 
 ## Alertas
 

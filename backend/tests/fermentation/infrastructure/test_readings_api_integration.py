@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from fermon.main import create_app
 from fermon.shared.config import Settings
+from tests.auth_helpers import CSRF_HEADERS, DEVICE_HEADERS, DEVICE_KEY, sign_in_fake_sessions
 
 pytestmark = pytest.mark.integration
 
@@ -27,10 +28,17 @@ RANGE = {"start": "2026-01-01T00:00:00Z", "end": "2026-01-02T00:00:00Z"}
 @pytest_asyncio.fixture
 async def client(engine: AsyncEngine, migrated_database_url: str) -> AsyncIterator[AsyncClient]:
     """Real app (real lifespan, real repository) wired to the test database only."""
-    app: FastAPI = create_app(Settings(database_url=migrated_database_url))
+    app: FastAPI = create_app(
+        Settings(database_url=migrated_database_url, device_api_keys=[DEVICE_KEY])
+    )
+    sign_in_fake_sessions(app)
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={**CSRF_HEADERS, **DEVICE_HEADERS},
+        ) as client:
             yield client
 
 

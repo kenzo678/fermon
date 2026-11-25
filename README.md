@@ -130,7 +130,7 @@ docker compose up -d                                       # api + ingestor + ba
 docker compose run --rm api uv run alembic upgrade head    # migraciones (la primera vez)
 docker compose --profile simulator up -d simulator         # empezar a publicar lecturas
 docker compose logs -f ingestor                            # ver el consumo
-curl "localhost:8000/tanks/tank-1/readings?start=2026-01-01T00:00:00Z&end=2027-01-01T00:00:00Z"
+curl -b cookies.txt "localhost:8000/tanks/tank-1/readings?start=2026-01-01T00:00:00Z&end=2027-01-01T00:00:00Z"   # requiere sesión: ver "Autorización"
 ```
 
 `start` y `end` son instantes ISO-8601 con zona horaria; el rango es `[start, end)`. Aplicar las
@@ -151,8 +151,8 @@ ingesta registra el tanque antes de guardar la lectura.
 | `GET /tanks/{tank_id}/readings?start=&end=` | Lecturas crudas del rango `[start, end)` |
 
 ```sh
-curl localhost:8000/tanks
-curl localhost:8000/tanks/tank-1
+curl -b cookies.txt localhost:8000/tanks
+curl -b cookies.txt localhost:8000/tanks/tank-1
 ```
 
 ```json
@@ -180,12 +180,135 @@ unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido
 ### CORS
 
 `CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST`,
-`PATCH`, `PUT` y `DELETE`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
-`http://localhost:5173,http://localhost:3000`:
+`PATCH`, `PUT` y `DELETE`, **con credenciales**: el navegador envía la cookie de sesión). Los encabezados
+permitidos son `Content-Type`, `X-Requested-With` y `X-Device-Key`. Acepta una lista separada por comas o un
+arreglo JSON; por defecto `http://localhost:5173,http://localhost:3000`. Debe listar orígenes explícitos:
+`*` se rechaza al arrancar, porque los navegadores no admiten `*` junto con credenciales:
 
 ```sh
 CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
 ```
+
+## Usuarios y sesiones
+
+La API tiene usuarios con roles y sesiones del lado del servidor. Todo exige iniciar sesión (ver
+[Autorización](#autorización)).
+
+| Rol | Permisos |
+| --- | --- |
+| `admin` | Todo, incluida la gestión de usuarios |
+| `brewer` | Crear, editar, iniciar y finalizar lotes; reconocer alertas; crear perfiles y especificaciones de calidad; registrar análisis de laboratorio; descargar reportes |
+| `viewer` | Solo lectura (tanques, lecturas, lotes, alertas, perfiles, análisis) y descarga de reportes |
+
+Las contraseñas se guardan con Argon2id y deben tener al menos 10 caracteres. No hay registro
+abierto: el primer administrador se crea por comando y los demás los crea un admin con una contraseña
+temporal (el usuario queda con `must_change_password: true` hasta que la cambia).
+
+```sh
+# La contraseña nunca va por argumentos ni queda en el historial del shell: se lee sin eco y se
+# pasa al contenedor solo por nombre (`-e VAR`); o se omite y el comando la pide con `-it`.
+read -rs FERMON_ADMIN_PASSWORD; export FERMON_ADMIN_PASSWORD
+docker compose run --rm -e FERMON_ADMIN_PASSWORD api \
+  python -m fermon.identity.create_admin --email admin@example.com --name "Admin"
+```
+
+El comando falla si el email ya existe. Los emails se normalizan a minúsculas y son únicos sin
+distinguir mayúsculas.
+
+**Entrar en la interfaz web.** Con el primer admin creado, abre `http://localhost:5173`: sin sesión la UI
+muestra `/login` (email y contraseña) y, tras entrar, vuelve a la página pedida. El admin crea al resto en
+*Users* (rol y contraseña temporal); esa persona debe cambiarla en su primer ingreso (`/account/password`,
+también accesible desde el menú de la cabecera, donde está *Sign out*). Un `viewer` solo ve datos; `brewer`
+y `admin` pueden crear y editar lotes y reconocer alertas; *Users* solo aparece para `admin`. En desarrollo
+la UI (`localhost:5173`) y la API (`localhost:8000`) son del mismo sitio para el navegador (las cookies no
+distinguen puertos), así que la cookie `SameSite=Lax` viaja también al WebSocket.
+
+| Endpoint | Descripción |
+| --- | --- |
+| `POST /auth/login` | `{email, password}` → `200 {user}` y cookie `fermon_session`; `401` genérico si falla; `429` con `Retry-After` tras demasiados fallos |
+| `POST /auth/logout` | `204`, revoca la sesión y borra la cookie (idempotente) |
+| `GET /auth/me` | `200 {user}` o `401` |
+| `POST /auth/password` | `{current_password, new_password}` → `204`; cierra las demás sesiones del usuario |
+| `GET /users`, `POST /users` | Listar / crear usuarios (`POST` → `201`); solo `admin` |
+| `PATCH /users/{id}` | `{version, role?, active?, display_name?}`; `409` si la versión quedó vieja o si se intenta degradar o desactivar al último admin |
+| `POST /users/{id}/reset-password` | `{temporary_password}` → `204`; cierra todas las sesiones del usuario |
+
+Sin sesión las rutas de usuarios responden `401`; con un rol insuficiente, `403`. El usuario nunca
+incluye el hash de la contraseña.
+
+La cookie `fermon_session` es `HttpOnly`, `SameSite=Lax` y `Path=/`. El navegador solo guarda un
+token aleatorio; en la base se guarda su hash SHA-256 (tabla `sessions`), de modo que se puede
+revocar y expira sola. Variables de entorno:
+
+| Variable | Defecto | Descripción |
+| --- | --- | --- |
+| `SESSION_TTL_SECONDS` | `28800` (8 h) | Duración de la sesión y `Max-Age` de la cookie |
+| `SESSION_COOKIE_SECURE` | `false` | Marca la cookie como `Secure`; activarlo detrás de HTTPS (con `false` el arranque avisa con un WARNING) |
+| `LOGIN_MAX_FAILURES_PER_ACCOUNT` | `5` | Fallos de login permitidos por email dentro de la ventana |
+| `LOGIN_MAX_FAILURES_PER_IP` | `20` | Fallos de login permitidos por IP del cliente dentro de la ventana |
+| `LOGIN_THROTTLE_WINDOW_SECONDS` | `900` | Ventana deslizante del límite; pasado ese tiempo se puede reintentar |
+
+Mientras un usuario tiene contraseña temporal (`must_change_password: true`) toda ruta autenticada
+responde `403` (campo `password`), salvo `GET /auth/me`, `POST /auth/password` y `POST /auth/logout`;
+al cambiar la contraseña se limpia la marca. El límite de intentos de login es por proceso (memoria):
+vale para una sola instancia de la API; un login correcto reinicia el contador de la cuenta, no el de
+la IP. Detrás de un proxy la IP vista es la del proxy.
+
+## Autorización
+
+Todo exige una sesión válida, salvo `GET /health`, `POST /auth/login`, `POST /auth/logout` (idempotente) y la
+documentación de FastAPI (`/docs`, `/redoc`, `/openapi.json`). Sin sesión la respuesta es `401`, con la
+forma unificada `{"detail": [{"field", "message"}]}`; con un rol insuficiente, `403`. Una prueba recorre
+todas las rutas de la aplicación y falla si alguna nueva queda sin protección.
+
+| Acción | `viewer` | `brewer` | `admin` |
+| --- | :---: | :---: | :---: |
+| Leer tanques, lecturas, lotes, alertas, perfiles y análisis; `POST /quality-profiles/{id}/evaluate` | sí | sí | sí |
+| Descargar reportes de lote (`/batches/{id}/report.pdf`, `.csv`) | sí | sí | sí |
+| Crear/editar/iniciar/finalizar lotes (`/batches`) | no | sí | sí |
+| Reconocer alertas (`POST /alerts/{id}/acknowledge`) | no | sí | sí |
+| Crear perfiles de calidad y `PUT`/`DELETE` de especificaciones | no | sí | sí |
+| Registrar análisis de laboratorio | no | sí | sí |
+| Gestionar usuarios (`/users`) | no | no | sí |
+
+Las reglas viven en `fermon.identity.domain.role` (`can_write_batches`, …) y se aplican como dependencias
+de las rutas; los `GET` solo piden una sesión.
+
+**Iniciar sesión con curl.** La cookie `fermon_session` se guarda con `-c` y se envía con `-b`:
+
+```sh
+curl -c cookies.txt -X POST localhost:8000/auth/login \
+  -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
+  -d '{"email": "admin@example.com", "password": "..."}'
+curl -b cookies.txt localhost:8000/tanks
+curl -b cookies.txt -X POST localhost:8000/batches/<id>/start -H 'X-Requested-With: fermon'
+```
+
+**CSRF.** Las peticiones que modifican (`POST`, `PUT`, `PATCH`, `DELETE`), incluidas `/auth/login`,
+`/auth/logout` y `/auth/password`, deben llevar el encabezado `X-Requested-With: fermon` (valor exacto);
+sin él la respuesta es `403` con `field: "X-Requested-With"`. Un formulario o una imagen de otro sitio no
+puede añadir ese encabezado, y un `fetch` entre sitios que lo añade exige un preflight de CORS que solo
+pasan los orígenes de `CORS_ORIGINS`. Se suma a la cookie `SameSite=Lax`. Solo `POST /readings` queda
+exento (no usa cookie).
+
+**Ingesta HTTP de dispositivos.** `POST /readings` no usa sesión de usuario: exige el encabezado
+`X-Device-Key` con una de las claves de `DEVICE_API_KEYS` (lista separada por comas; se compara en tiempo
+constante). Sin clave o con una clave incorrecta responde `401` (`field: "X-Device-Key"`). Por defecto
+`DEVICE_API_KEYS` está vacía: la ingesta HTTP queda desactivada (siempre `401`) y el arranque avisa con un
+WARNING. La ingesta por MQTT no cambia. Compose pasa la variable al servicio `api`:
+
+```sh
+DEVICE_API_KEYS=clave-del-sensor-1,clave-del-sensor-2 docker compose up -d api
+curl -X POST localhost:8000/readings -H 'X-Device-Key: clave-del-sensor-1' -H 'Content-Type: application/json' \
+  -d '{"tank_id": "tank-1", "sensor_id": "probe-a", "measurement": "temperature", "value": 18.5, "unit": "celsius", "recorded_at": "2026-01-01T10:00:00Z"}'
+```
+
+**WebSockets.** `/ws/tanks/{tank_id}` y `/ws/alerts` exigen la cookie de sesión en el apretón de manos (los
+navegadores la envían solos). Sin sesión válida, o con contraseña temporal pendiente, se acepta y se cierra
+con el código `4401`; un `Origin` fuera de `CORS_ORIGINS` se cierra con `4403` (se evalúa antes que la
+sesión, porque los navegadores envían cookies también desde otros sitios). Un cliente sin `Origin` (script) se
+acepta si la sesión es válida. Cualquier rol puede escuchar. Los códigos de cierre están en
+[Tiempo real](#tiempo-real-websocket).
 
 ## Lotes
 
@@ -214,13 +337,13 @@ obligatorios `temperature_min`, `temperature_max` y `pressure_max`). Los límite
 (mín. < máx.) y estar dentro de los rangos físicos de cada medición; `expected_final_abv` es 0–20.
 
 ```sh
-curl -X POST localhost:8000/batches -H 'Content-Type: application/json' -d '{
+curl -X POST localhost:8000/batches -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{
   "tank_id": "tank-1", "beer_name": "Pale Ale", "style": "APA", "template": "ale",
   "targets": {"temperature_max": 22.0}, "expected_end": "2026-02-01T00:00:00Z"
 }'
-curl -X POST localhost:8000/batches/<id>/start
-curl -X PATCH localhost:8000/batches/<id> -H 'Content-Type: application/json' -d '{"notes": "dry hop"}'
-curl -X POST localhost:8000/batches/<id>/finish
+curl -X POST localhost:8000/batches/<id>/start -b cookies.txt -H 'X-Requested-With: fermon'
+curl -X PATCH localhost:8000/batches/<id> -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{"notes": "dry hop"}'
+curl -X POST localhost:8000/batches/<id>/finish -b cookies.txt -H 'X-Requested-With: fermon'
 ```
 
 `GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
@@ -266,12 +389,12 @@ terminado). Son valores **ilustrativos** de manual para una lager rubia, pensado
 para editar con `PUT`; no son las especificaciones de ninguna cervecería.
 
 ```sh
-curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/quality-profiles -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
   -d '{"name": "House lager", "template": "pale_lager"}'
-curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' -d '{"name": "Pale lager"}'
-curl -X PUT localhost:8000/quality-profiles/<id>/specs/bright_beer/ph -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/quality-profiles -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{"name": "Pale lager"}'
+curl -X PUT localhost:8000/quality-profiles/<id>/specs/bright_beer/ph -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
   -d '{"acceptance": {"min": 4.15, "max": 4.65}, "internal": {"min": 4.25, "max": 4.55}}'
-curl -X POST localhost:8000/quality-profiles/<id>/evaluate -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/quality-profiles/<id>/evaluate -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
   -d '{"stage": "bright_beer", "values": {"ph": 4.6, "color": 6.1}}'
 # -> ph: "warning", color: "no_spec"
 ```
@@ -297,7 +420,7 @@ filtración y el envasado ocurren después de la fermentación. Migración `0008
 | `GET /lab-analyses/{id}` | Un análisis; `404` (`analysis_id`) |
 
 ```sh
-curl -X POST localhost:8000/batches/<id>/lab-analyses -H 'Content-Type: application/json' -d '{
+curl -X POST localhost:8000/batches/<id>/lab-analyses -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{
   "stage": "brewhouse", "analyst": "M. Ruiz",
   "values": {"original_extract": 11.4, "ph": 5.6, "wort_oxygen": 7.0}
 }'
@@ -306,6 +429,60 @@ curl -X POST localhost:8000/batches/<id>/lab-analyses -H 'Content-Type: applicat
 
 Todavía no se puede editar ni borrar un análisis (una corrección se registra como un análisis nuevo), y
 los parámetros derivados por fórmula (p. ej. color = absorbancia × 25) se cargan ya calculados.
+
+## Reportes
+
+Cada lote `active` o `finished` se puede descargar como PDF o CSV; un lote `planned` responde `409` (`field:
+"status"`) y uno desconocido `404` (`field: "batch_id"`). Cualquier rol con sesión puede descargarlos
+(también `viewer`); el reporte es determinista, sin IA, y sale de los mismos datos que ven el panel y la API.
+
+| Endpoint | Respuesta |
+| --- | --- |
+| `GET /batches/{id}/report.pdf` | `application/pdf`, A4, adjunto `batch-<cerveza>-<fecha>.pdf` |
+| `GET /batches/{id}/report.csv` | `text/csv`, adjunto `batch-<cerveza>-<fecha>.csv` |
+
+La fecha del nombre es la de generación (UTC). Un lote activo da un reporte **parcial**, marcado
+«Partial (batch in progress)» y calculado hasta el momento de la descarga; uno finalizado cubre de
+`started_at` a `finished_at`.
+
+Desde la interfaz, el detalle de un lote `active` o `finished` muestra los enlaces «Download PDF» y
+«Download CSV» (también para `viewer`; con un aviso de reporte parcial si el lote sigue activo). Son enlaces
+normales, no `fetch`: el navegador envía la cookie de sesión y baja el archivo directamente.
+
+**Contenido del PDF** (plantilla HTML con Jinja2, impresa con WeasyPrint; los gráficos son SVG en línea
+generados en Python, sin JavaScript ni librerías de gráficos): datos del lote (cerveza, estilo, tanque,
+estado, perfil de calidad, inicio, fin o fin esperado, duración), estadísticas por medición (lecturas, mín,
+máx, promedio, primer y último valor, rango objetivo y % de tiempo en rango), gráficos de temperatura,
+presión y ABV frente al esperado con el rango objetivo sombreado, alertas del lote (tipo, medición,
+apertura, reconocimiento, resolución, duración y motivo) y análisis de laboratorio con el estado guardado
+de cada valor. Pie con la fecha de generación y el número de página. El **CSV** es una sola tabla plana:
+una sección de resumen del lote y una de estadísticas por medición (sin series, alertas ni análisis).
+
+**Resolución.** Las estadísticas salen de los agregados de **1 minuto** (`readings_1m`), no de las lecturas
+crudas: una fermentación de semanas son millones de muestras. Por eso `count` suma las lecturas, `min` y
+`max` son exactos, el promedio se pondera por lecturas y «primer» y «último» valor son el promedio del
+primer y del último minuto con datos. Los gráficos reducen cada serie a un máximo de 240 puntos (intervalos
+iguales de minutos enteros, promedio ponderado).
+
+**% de tiempo en rango.** Cada muestra (minuto) mantiene su valor hasta la siguiente y aporta
+`min(tiempo hasta la siguiente muestra, REPORT_MAX_GAP_SECONDS)`; la última, hasta el fin del reporte con el
+mismo tope. Un silencio mayor al tope (por defecto 600 s = 10 min) **no cuenta como en rango**, y tampoco
+como tiempo observado: el porcentaje es «del tiempo observado». Está en rango si `mín <= valor <= máx` del
+objetivo del lote (un límite ausente no acota). Sin objetivo, el % es `null` en el CSV y `-` en el PDF: es
+el caso del alcohol, que solo muestra progreso.
+
+**ABV frente al esperado.** Modelo lineal: 0 % al iniciar y `expected_final_abv` en `expected_end`, plano
+después. Sin `expected_end` o sin `expected_final_abv` no se dibuja la curva esperada.
+
+```sh
+curl -b cookies.txt -OJ localhost:8000/batches/<id>/report.pdf
+curl -b cookies.txt -OJ localhost:8000/batches/<id>/report.csv
+```
+
+`REPORT_MAX_GAP_SECONDS` (por defecto `600`) es el tope de silencio. El PDF necesita Pango y una fuente
+del sistema: el `Dockerfile` los instala (`libpango-1.0-0`, `libpangoft2-1.0-0`, `libharfbuzz-subset0`,
+`fonts-dejavu-core`) tanto en `dev` como en `prod`. Limitaciones: la alerta no guarda quién la reconoció,
+así que el reporte solo muestra cuándo; la generación del PDF es síncrona en un hilo aparte y no se cachea.
 
 ## Alertas
 
@@ -389,8 +566,8 @@ aggregates* de TimescaleDB: `readings_1m` (cubos de 1 minuto, sobre `readings`) 
 (cubos de 1 hora, jerárquico sobre `readings_1m`, así nunca relee las lecturas crudas).
 
 ```sh
-curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1m&start=2026-01-01T12:00:00Z&end=2026-01-01T13:00:00Z'
-curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1h&measurement=temperature&measurement=pressure&start=...&end=...'
+curl -b cookies.txt 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1m&start=2026-01-01T12:00:00Z&end=2026-01-01T13:00:00Z'
+curl -b cookies.txt 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1h&measurement=temperature&measurement=pressure&start=...&end=...'
 ```
 
 ```json
@@ -436,7 +613,7 @@ docker compose exec timescaledb psql -U fermon -d fermon -c \
 
 ## Tiempo real (WebSocket)
 
-`ws://localhost:8000/ws/tanks/{tank_id}` envía cada lectura nueva del tanque como un mensaje de
+`ws://localhost:8000/ws/tanks/{tank_id}` (requiere la cookie de sesión, ver [Autorización](#autorización)) envía cada lectura nueva del tanque como un mensaje de
 texto JSON, con la misma forma que `ReadingOut` de la API REST (instantes en UTC):
 
 ```json
@@ -447,7 +624,7 @@ texto JSON, con la misma forma que `ReadingOut` de la API REST (instantes en UTC
 Cómo funciona: al guardar una lectura **nueva** (no un duplicado), el adaptador de persistencia
 ejecuta `pg_notify('fermon_readings', <json>)` en la misma transacción del `INSERT`. PostgreSQL
 entrega la notificación solo al confirmar (`COMMIT`), así que el panel nunca ve datos que no estén
-en la base. Tanto `POST /readings` como el ingestor MQTT pasan por ese adaptador. La API mantiene
+en la base. Tanto `POST /readings` (con `X-Device-Key`) como el ingestor MQTT pasan por ese adaptador. La API mantiene
 una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscritos a ese tanque.
 
 - Tanque desconocido o `tank_id` en blanco: el servidor acepta y cierra de inmediato con el código
@@ -457,14 +634,15 @@ una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscri
   | Código | Significado |
   | ------ | ----------- |
   | `1011` | Error interno: falló la consulta del tanque (p. ej. base de datos caída). El servidor acepta y cierra con el motivo `internal error` y registra el error. Reintente más tarde. |
+  | `4401` | Sin sesión válida: falta la cookie `fermon_session`, expiró o fue revocada, o la cuenta tiene contraseña temporal pendiente. Se cierra antes de consultar el tanque. |
   | `4403` | Origen no permitido (ver abajo). |
   | `4404` | Tanque desconocido o `tank_id` en blanco. |
 
 - Origen no permitido: si el encabezado `Origin` no está en `CORS_ORIGINS` se acepta el
   apretón de manos y se cierra de inmediato con `4403` y un motivo, para que el navegador lo
   observe (CORS no cubre WebSockets, por eso se valida aparte). Los clientes sin
-  `Origin` (scripts, `websocat`) se aceptan: la restricción protege contra páginas de otros sitios,
-  no es autenticación.
+  `Origin` (scripts, `websocat`) se aceptan si la sesión es válida: la comprobación de origen protege
+  contra páginas de otros sitios que aprovechan la cookie del navegador; la autenticación es la sesión.
 - Semántica de entrega: transmisión **en vivo y de mejor esfuerzo**, sin repetición. Las lecturas
   guardadas mientras el cliente estaba desconectado, o mientras la API había perdido su conexión de
   escucha (se reconecta sola con espera de 1 a 30 s), no se reenvían. Al (re)conectar, el cliente
@@ -485,7 +663,8 @@ una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscri
 docker compose exec api uv run python -c "
 import asyncio, websockets
 async def main():
-    async with websockets.connect('ws://localhost:8000/ws/tanks/tank-1') as ws:
+    async with websockets.connect('ws://localhost:8000/ws/tanks/tank-1',
+            additional_headers={'Cookie': 'fermon_session=<valor de cookies.txt>'}) as ws:
         async for message in ws:
             print(message)
 asyncio.run(main())"
@@ -511,6 +690,7 @@ escucha** para `fermon_readings` y `fermon_alerts`, con la misma reconexión y c
 | Código de cierre | Significado |
 | ---------------- | ----------- |
 | `1011` | Error interno: no se pudo suscribir al flujo de alertas. Se acepta y se cierra con el motivo `internal error`. |
+| `4401` | Sin sesión válida (mismas reglas que `/ws/tanks/{id}`). |
 | `4403` | Origen no permitido: mismas reglas de `CORS_ORIGINS` que `/ws/tanks/{id}`. |
 
 - Mejor esfuerzo, sin repetición: las alertas que cambian mientras el cliente estaba desconectado, o
@@ -604,11 +784,19 @@ propios lotes en `tank-1` (a veces por la API), los finaliza al terminar y corre
 el proyecto de escritorio, porque un tanque admite un único lote activo y el proyecto móvil
 competiría por él. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
 
+La API exige sesión, así que el servicio `e2e-admin` (perfil `e2e`) crea un administrador
+(`e2e-admin@example.com`, contraseña `E2E_ADMIN_PASSWORD`, por defecto `e2e-admin-password`; sin contraseña
+temporal) antes de las pruebas; es repetible (si ya existe lo informa y sigue). El `globalSetup` entra una vez
+con él y guarda la sesión en `frontend/e2e/.auth/admin.json` (ignorado por git), que usan todos los specs
+(`storageState`); `auth.spec.ts` entra a mano. La cookie es `SameSite=Lax`, y `frontend-e2e` y `api` son
+sitios distintos para el navegador, así que `frontend-e2e` sirve la API en `/api` de su propio origen (proxy
+de Vite hacia `API_PROXY_TARGET`, `VITE_API_URL=/api`); los ayudantes de API de los specs usan la misma ruta.
+
 Prerrequisitos: migraciones aplicadas y simulador activo (las pruebas esperan tank-1 y tank-2 con
 lecturas). El servicio `e2e` espera a que `api` y `frontend-e2e` respondan (healthchecks) y un
 `globalSetup` espera hasta 90 s a que existan lecturas de tank-1 y tank-2; si no, falla con un mensaje
 claro. `frontend-e2e` es una copia de `frontend`
-con `VITE_API_URL=http://api:8000`, una dirección alcanzable desde ese navegador; el `frontend`
+con `VITE_API_URL=/api` (proxy de Vite hacia `http://api:8000`, ver arriba); el `frontend`
 normal sigue usando `localhost`. La API acepta el origen `http://frontend-e2e:5173` por defecto en
 `CORS_ORIGINS`; si defines esa variable en `.env`, incluye ese origen. Las trazas de las pruebas
 fallidas quedan en `frontend/test-results/`.

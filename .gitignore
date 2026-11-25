@@ -22,4 +22,6 @@ node_modules/
 coverage/
 playwright-report/
 test-results/
+# Session cookie saved by the e2e global setup
+frontend/e2e/.auth/
 *.tsbuildinfo

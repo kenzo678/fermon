@@ -25,6 +25,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_save_quality_spec,
 )
 from fermon.main import create_app
+from tests.auth_helpers import CSRF_HEADERS, role_headers, sign_in_fake_sessions
 from tests.fermentation.fakes import InMemoryQualityProfileRepository
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -49,6 +50,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     profiles = InMemoryQualityProfileRepository()
     ids = Ids()
     app: FastAPI = create_app()
+    sign_in_fake_sessions(app)
     overrides: Any = app.dependency_overrides
     overrides[get_create_quality_profile] = lambda: CreateQualityProfile(profiles, lambda: T0, ids)
     overrides[get_list_quality_profiles] = lambda: ListQualityProfiles(profiles)
@@ -56,7 +58,9 @@ async def client() -> AsyncIterator[AsyncClient]:
     overrides[get_save_quality_spec] = lambda: SaveQualitySpec(profiles)
     overrides[get_remove_quality_spec] = lambda: RemoveQualitySpec(profiles)
     overrides[get_evaluate_quality_values] = lambda: EvaluateQualityValues(profiles)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=CSRF_HEADERS
+    ) as client:
         yield client
 
 
@@ -277,3 +281,29 @@ async def test_unknown_template_is_unprocessable(client: AsyncClient) -> None:
 
     assert response.status_code == 422
     assert error_fields(response) == ["template"]
+
+
+async def test_a_viewer_reads_and_evaluates_but_cannot_edit_profiles(client: AsyncClient) -> None:
+    viewer = role_headers("viewer")
+    profile_id = await create_profile(client)
+
+    listed = await client.get("/quality-profiles", headers=viewer)
+    catalog = await client.get("/quality-parameters", headers=viewer)
+    evaluated = await client.post(
+        f"/quality-profiles/{profile_id}/evaluate", json={"stage": "packaged"}, headers=viewer
+    )
+    forbidden = [
+        await client.post("/quality-profiles", json={"name": "Other"}, headers=viewer),
+        await client.put(
+            f"/quality-profiles/{profile_id}/specs/brewhouse/original_extract",
+            json=OE_SPEC,
+            headers=viewer,
+        ),
+        await client.delete(
+            f"/quality-profiles/{profile_id}/specs/brewhouse/original_extract", headers=viewer
+        ),
+    ]
+
+    assert (listed.status_code, catalog.status_code, evaluated.status_code) == (200, 200, 200)
+    assert [r.status_code for r in forbidden] == [403, 403, 403]
+    assert len((await client.get("/quality-profiles")).json()) == 1

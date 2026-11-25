@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     alert_resolve_seconds: int = Field(default=120, gt=0)
     alert_silent_seconds: int = Field(default=600, gt=0)
     alert_silent_check_interval_seconds: int = Field(default=60, gt=0)
+    # Server-side login sessions (see the README): lifetime in seconds, and the cookie's Secure
+    # flag, off by default so local development over plain http works.
+    session_ttl_seconds: int = Field(default=8 * 3600, gt=0)
+    session_cookie_secure: bool = False
+    # Failed-login throttling (per process): failures allowed per account / per client IP inside
+    # the sliding window before login answers 429 (see the README).
+    login_max_failures_per_account: int = Field(default=5, gt=0)
+    login_max_failures_per_ip: int = Field(default=20, gt=0)
+    login_throttle_window_seconds: int = Field(default=15 * 60, gt=0)
+    # Batch reports: a silence between two readings longer than this is not counted as in range.
+    report_max_gap_seconds: int = Field(default=600, gt=0)
     # Where the ingestor finds Alembic's config; override when not running from the source tree.
     alembic_ini_path: Path = DEFAULT_ALEMBIC_INI_PATH
     # Origins allowed to call the API from a browser. NoDecode: the env value is a plain
@@ -33,15 +44,28 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
-    @field_validator("cors_origins", mode="before")
+    # Keys accepted in the ``X-Device-Key`` header of ``POST /readings`` (comma-separated).
+    # Empty by default: HTTP ingestion is then disabled (MQTT is unaffected).
+    device_api_keys: Annotated[list[str], NoDecode] = []
+
+    @field_validator("cors_origins", "device_api_keys", mode="before")
     @classmethod
-    def _parse_cors_origins(cls, value: object) -> object:
+    def _parse_comma_separated_list(cls, value: object) -> object:
         if isinstance(value, str):
             text = value.strip()
             if text.startswith("["):
                 return json.loads(text)
-            return [origin.strip() for origin in text.split(",") if origin.strip()]
+            return [item.strip() for item in text.split(",") if item.strip()]
         return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _reject_wildcard_origin(cls, origins: list[str]) -> list[str]:
+        # The API answers with credentials (the session cookie), which browsers refuse to
+        # combine with a wildcard origin: list the exact origins instead.
+        if "*" in origins:
+            raise ValueError("CORS_ORIGINS must list explicit origins; '*' is not allowed")
+        return origins
 
     @model_validator(mode="before")
     @classmethod

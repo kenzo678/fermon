@@ -5,10 +5,11 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from fermon.fermentation.infrastructure.persistence import metadata
+from fermon.identity.infrastructure.persistence import identity_metadata
 from fermon.shared.config import Settings
 
 config = context.config
-target_metadata = metadata
+target_metadata = [metadata, identity_metadata]
 
 
 def _database_url() -> str:

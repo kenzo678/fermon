@@ -57,17 +57,37 @@ async function readErrorDetail(response: Response, signal?: AbortSignal): Promis
   }
 }
 
-async function request<T>(url: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
+/** Seconds of a numeric `Retry-After` header; the HTTP-date form is not used by this API. */
+function readRetryAfter(response: Response): number | undefined {
+  const value = response.headers.get("Retry-After");
+  if (value === null || !/^\d+$/.test(value.trim())) return undefined;
+  return Number(value);
+}
+
+/** Every call carries the session cookie; unsafe methods also carry the CSRF header the API requires. */
+async function send(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  const unsafe = init.method !== undefined && init.method !== "GET";
+  const headers = unsafe ? { ...init.headers, "X-Requested-With": "fermon" } : init.headers;
   let response: Response;
   try {
-    response = await fetch(url, { ...init, signal });
+    response = await fetch(url, { ...init, headers, credentials: "include", signal });
   } catch (cause) {
     rethrowIfAborted(signal, cause);
     throw new ApiError(0, [], "Network error: could not reach the API");
   }
   if (!response.ok) {
-    throw new ApiError(response.status, await readErrorDetail(response, signal));
+    throw new ApiError(
+      response.status,
+      await readErrorDetail(response, signal),
+      undefined,
+      readRetryAfter(response),
+    );
   }
+  return response;
+}
+
+async function request<T>(url: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
+  const response = await send(url, init, signal);
   // Every endpoint we consume returns JSON, so an empty (204) or non-JSON 2xx body is an error.
   try {
     return (await response.json()) as T;
@@ -81,6 +101,12 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
   return request<T>(buildUrl(path, options.params), {}, options.signal);
 }
 
+function writeInit(method: "POST" | "PATCH", body: unknown): RequestInit {
+  return body === undefined
+    ? { method }
+    : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
 /** POST/PATCH with an optional JSON body; same error contract as `apiGet`. */
 export async function apiSend<T>(
   method: "POST" | "PATCH",
@@ -88,9 +114,15 @@ export async function apiSend<T>(
   body?: unknown,
   options: Pick<RequestOptions, "signal"> = {},
 ): Promise<T> {
-  const init: RequestInit =
-    body === undefined
-      ? { method }
-      : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
-  return request<T>(buildUrl(path, undefined), init, options.signal);
+  return request<T>(buildUrl(path, undefined), writeInit(method, body), options.signal);
+}
+
+/** Like `apiSend` for endpoints that answer 204 with no body (logout, password changes). */
+export async function apiSendEmpty(
+  method: "POST" | "PATCH",
+  path: string,
+  body?: unknown,
+  options: Pick<RequestOptions, "signal"> = {},
+): Promise<void> {
+  await send(buildUrl(path, undefined), writeInit(method, body), options.signal);
 }

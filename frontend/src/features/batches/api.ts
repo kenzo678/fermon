@@ -1,4 +1,4 @@
-import { apiGet, apiSend } from "../../shared/api";
+import { API_URL, apiGet, apiSend, buildUrl } from "../../shared/api";
 import type { Batch, BatchStatus, BatchTemplate } from "../../shared/api";
 import type { CreateBatchBody, PatchBatchBody } from "./form";
 
@@ -37,3 +37,13 @@ export const updateBatch = (batchId: string, body: PatchBatchBody) =>
 export const startBatch = (batchId: string) => apiSend<Batch>("POST", `${batchPath(batchId)}/start`);
 
 export const finishBatch = (batchId: string) => apiSend<Batch>("POST", `${batchPath(batchId)}/finish`);
+
+export type ReportFormat = "pdf" | "csv";
+
+/**
+ * Link target of a batch report. It is a plain URL, not a fetch: the browser sends the session cookie
+ * on its own (same site in dev, same origin behind the e2e proxy) and streams the file to disk, and the
+ * server's `Content-Disposition: attachment` forces the download even where `download` is ignored.
+ */
+export const reportUrl = (batchId: string, format: ReportFormat, base: string = API_URL): string =>
+  buildUrl(`${batchPath(batchId)}/report.${format}`, undefined, base);

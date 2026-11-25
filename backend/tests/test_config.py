@@ -96,3 +96,86 @@ def test_alert_thresholds_are_configurable_through_the_environment(
 def test_alert_thresholds_must_be_positive(name: str, value: int) -> None:
     with pytest.raises(ValidationError, match=name):
         Settings(**{name: value})
+
+
+def test_session_settings_default_to_eight_hours_and_an_insecure_cookie_for_local_dev() -> None:
+    settings = Settings()
+    assert settings.session_ttl_seconds == 8 * 3600
+    assert settings.session_cookie_secure is False
+
+
+def test_session_settings_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSION_TTL_SECONDS", "600")
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "true")
+    settings = Settings()
+    assert (settings.session_ttl_seconds, settings.session_cookie_secure) == (600, True)
+
+
+def test_session_ttl_must_be_positive() -> None:
+    with pytest.raises(ValueError):
+        Settings(session_ttl_seconds=0)
+
+
+def test_login_throttle_defaults_and_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    defaults = Settings()
+    assert (
+        defaults.login_max_failures_per_account,
+        defaults.login_max_failures_per_ip,
+        defaults.login_throttle_window_seconds,
+    ) == (5, 20, 15 * 60)
+    monkeypatch.setenv("LOGIN_MAX_FAILURES_PER_ACCOUNT", "3")
+    monkeypatch.setenv("LOGIN_THROTTLE_WINDOW_SECONDS", "60")
+    settings = Settings()
+    assert (settings.login_max_failures_per_account, settings.login_throttle_window_seconds) == (
+        3,
+        60,
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "login_max_failures_per_account",
+        "login_max_failures_per_ip",
+        "login_throttle_window_seconds",
+    ],
+)
+def test_login_throttle_settings_must_be_positive(name: str) -> None:
+    with pytest.raises(ValidationError, match=name):
+        Settings(**{name: 0})
+
+
+def test_device_api_keys_default_to_none_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEVICE_API_KEYS", raising=False)
+    assert Settings().device_api_keys == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("", []),
+        ("key-a", ["key-a"]),
+        (" key-a, key-b ,", ["key-a", "key-b"]),
+    ],
+    ids=["empty", "single", "comma-separated"],
+)
+def test_device_api_keys_env_var_is_a_comma_separated_list(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+) -> None:
+    monkeypatch.setenv("DEVICE_API_KEYS", raw)
+    assert Settings().device_api_keys == expected
+
+
+@pytest.mark.parametrize("raw", ["*", "https://a.example,*", '["*"]'])
+def test_a_wildcard_cors_origin_is_rejected_because_cookies_are_sent(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", raw)
+    with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+        Settings()
+
+
+def test_report_gap_cap_defaults_to_ten_minutes_and_must_be_positive() -> None:
+    assert Settings().report_max_gap_seconds == 600
+    with pytest.raises(ValidationError):
+        Settings(report_max_gap_seconds=0)

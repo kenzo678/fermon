@@ -11,6 +11,7 @@ import {
 import type { RangeValue } from "../readings";
 import { ApiError } from "../../shared/api";
 import { ActiveAlerts } from "../alerts/ActiveAlerts";
+import { usePermissions } from "../auth";
 import { formatPressureRange, formatTemperatureRange } from "../batches/format";
 import { ErrorState } from "./components/ErrorState";
 import { MEASUREMENTS, MEASUREMENT_ORDER, formatDateTime } from "./format";
@@ -30,6 +31,7 @@ export function TankDetailPage() {
   const range = parseRange(searchParams.get("range"));
   const tank = useTankQuery(tankId);
   const readings = useAggregatedReadingsQuery(tankId, range);
+  const { canWriteBatches } = usePermissions();
   // A terminal close (e.g. 4404) just reads "Offline"; the REST 404 path owns the missing tank.
   const liveStatus = useLiveReadings(tankId === "" ? NO_TANKS : [tankId]);
 
@@ -107,10 +109,15 @@ export function TankDetailPage() {
           </>
         ) : (
           <p className="text-sm text-slate-600">
-            No active batch.{" "}
-            <Link to={`/batches/new?tank=${encodeURIComponent(tank.data.id)}`} className="font-medium underline">
-              Start a batch
-            </Link>
+            No active batch.
+            {canWriteBatches && (
+              <>
+                {" "}
+                <Link to={`/batches/new?tank=${encodeURIComponent(tank.data.id)}`} className="font-medium underline">
+                  Start a batch
+                </Link>
+              </>
+            )}
           </p>
         )}
       </section>

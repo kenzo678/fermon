@@ -1,4 +1,4 @@
-import type { Alert, Batch, Measurement, Reading, Tank } from "../shared/api";
+import type { Alert, Batch, Measurement, Reading, Role, Tank, User } from "../shared/api";
 
 const UNITS: Record<Measurement, string> = {
   temperature: "celsius",
@@ -76,6 +76,19 @@ export function makeAlert(overrides: Partial<Alert> = {}): Alert {
     acknowledged_at: null,
     resolved_at: null,
     details: { bound: "below", observed: 19.1, target_min: 30, target_max: 35 },
+    version: 1,
+    ...overrides,
+  };
+}
+
+export function makeUser(overrides: Partial<User> = {}): User {
+  return {
+    id: "user-1",
+    email: "admin@example.com",
+    display_name: "Ada Admin",
+    role: "admin" as Role,
+    must_change_password: false,
+    active: true,
     version: 1,
     ...overrides,
   };

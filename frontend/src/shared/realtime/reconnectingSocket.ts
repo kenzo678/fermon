@@ -4,6 +4,7 @@ export type SocketStatus =
   | "reconnecting"
   | "closed"
   | "forbidden"
+  | "unauthorized"
   | "not_found";
 
 /** The subset of the browser WebSocket this module needs (also what test fakes implement). */
@@ -30,6 +31,7 @@ export interface ReconnectingSocket {
 
 const FIRST_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 30_000;
+const CLOSE_UNAUTHORIZED = 4401;
 const CLOSE_FORBIDDEN_ORIGIN = 4403;
 const CLOSE_TANK_NOT_FOUND = 4404;
 
@@ -37,7 +39,7 @@ const defaultFactory = (url: string): SocketLike => new WebSocket(url);
 
 /**
  * WebSocket that reconnects with exponential backoff (1 s doubling up to 30 s, reset after an
- * open). Close codes 4403/4404 are terminal; any other close, including 1011, reconnects.
+ * open). Close codes 4401 (no session), 4403 and 4404 are terminal; any other close, including 1011, reconnects.
  */
 export function createReconnectingSocket({
   url,
@@ -95,7 +97,8 @@ export function createReconnectingSocket({
     };
     current.onclose = (event) => {
       socket = null;
-      if (event.code === CLOSE_FORBIDDEN_ORIGIN) setStatus("forbidden");
+      if (event.code === CLOSE_UNAUTHORIZED) setStatus("unauthorized");
+      else if (event.code === CLOSE_FORBIDDEN_ORIGIN) setStatus("forbidden");
       else if (event.code === CLOSE_TANK_NOT_FOUND) setStatus("not_found");
       else scheduleReconnect();
     };

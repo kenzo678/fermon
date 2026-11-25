@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../../shared/api";
 import type { Batch } from "../../shared/api";
+import { usePermissions } from "../auth";
 import { formatDateTime } from "../tanks/format";
 import { ErrorState } from "../tanks/components/ErrorState";
 import { useTanksQuery } from "../tanks/useTanksQuery";
 import { BatchForm } from "./components/BatchForm";
 import { StatusBadge } from "./components/StatusBadge";
 import { mapServerErrors, toPatchBody, valuesFromBatch } from "./form";
+import { reportUrl } from "./api";
 import {
   useBatchQuery,
   useBatchTemplatesQuery,
@@ -25,6 +27,9 @@ const backLink = (
 const buttonClass =
   "rounded-md px-4 py-2 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60";
 
+const reportLinkClass =
+  "rounded-md border border-slate-300 bg-white px-3 py-1.5 font-medium hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2";
+
 function messagesOf(error: Error): string[] {
   const { fields, general } = mapServerErrors(error);
   return [...Object.values(fields), ...general];
@@ -35,6 +40,7 @@ export function BatchDetailPage() {
   const batch = useBatchQuery(batchId);
   const tanks = useTanksQuery();
   const templates = useBatchTemplatesQuery();
+  const { canWriteBatches, canDownloadReports } = usePermissions();
   // The server copy the form was last (re)started from, and whether the user has unsaved edits on it.
   const [adopted, setAdopted] = useState<Batch | null>(null);
   // This page's own successful changes: the returned copy is the new truth. It is adopted by the
@@ -104,7 +110,7 @@ export function BatchDetailPage() {
           {data.started_at !== null && <> · Started {formatDateTime(data.started_at)}</>}
           {data.finished_at !== null && <> · Finished {formatDateTime(data.finished_at)}</>}
         </p>
-        {data.status === "planned" && (
+        {canWriteBatches && data.status === "planned" && (
           <button
             type="button"
             disabled={start.isPending}
@@ -114,7 +120,8 @@ export function BatchDetailPage() {
             Start batch
           </button>
         )}
-        {data.status === "active" &&
+        {canWriteBatches &&
+          data.status === "active" &&
           (confirmingFinish ? (
             <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
               <p>Finish this batch? It will stop being monitored and can't be undone.</p>
@@ -145,6 +152,19 @@ export function BatchDetailPage() {
               Finish batch
             </button>
           ))}
+        {canDownloadReports && data.status !== "planned" && (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <a href={reportUrl(data.id, "pdf")} download className={reportLinkClass}>
+              Download PDF
+            </a>
+            <a href={reportUrl(data.id, "csv")} download className={reportLinkClass}>
+              Download CSV
+            </a>
+            {data.status === "active" && (
+              <p className="text-slate-600">The report is partial until the batch is finished.</p>
+            )}
+          </div>
+        )}
         {actionError !== null && (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
             {messagesOf(actionError).map((message) => (
@@ -178,7 +198,7 @@ export function BatchDetailPage() {
           submitLabel="Save changes"
           submitting={update.isPending}
           serverErrors={formErrors}
-          readOnly={data.status === "finished"}
+          readOnly={data.status === "finished" || !canWriteBatches}
           errorAction={
             update.error instanceof ApiError && update.error.status === 409 ? (
               <button

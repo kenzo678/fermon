@@ -7,9 +7,10 @@ import { API_URL } from "../../shared/api";
 import type { Alert } from "../../shared/api";
 import { RealtimeProvider } from "../../shared/realtime";
 import { createFakeSocketHub } from "../../test/fakeSocket";
-import { makeAlert, makeTank } from "../../test/fixtures";
+import { makeAlert, makeTank, makeUser } from "../../test/fixtures";
 import { createTestQueryClient } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
+import { sessionKeys } from "../auth/api";
 import { tankKeys } from "../tanks/api";
 import { alertKeys } from "./api";
 import { applyAlert, matchesFilters } from "./cache";
@@ -196,6 +197,28 @@ describe("useLiveAlerts connection", () => {
     const { hub, result } = setup();
     act(() => hub.latest("/ws/alerts").serverClose(4403));
     expect(result.current).toBe("offline");
+  });
+
+  it("stops and asks the server about the session when the socket is refused for lack of one (4401)", async () => {
+    let meCalls = 0;
+    server.use(
+      http.get(`${API_URL}/auth/me`, () => {
+        meCalls += 1;
+        return HttpResponse.json({ detail: [] }, { status: 401 });
+      }),
+    );
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { hub, result, queryClient } = setup();
+    queryClient.setQueryData(sessionKeys.current(), makeUser());
+    act(() => hub.latest("/ws/alerts").serverClose(4401));
+    expect(result.current).toBe("offline");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(hub.sockets).toHaveLength(1);
+    vi.useRealTimers();
+    await waitFor(() => expect(meCalls).toBe(1));
+    await waitFor(() => expect(queryClient.getQueryData(sessionKeys.current())).toBeNull());
   });
 
   it("closes the socket on unmount", () => {

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { Alert } from "../../shared/api";
 import { createReconnectingSocket, useSocketFactory, wsUrlFor } from "../../shared/realtime";
 import type { SocketStatus } from "../../shared/realtime";
+import { refreshSession } from "../auth/api";
 import { tankKeys } from "../tanks/api";
 import { alertKeys } from "./api";
 import { applyAlert } from "./cache";
@@ -46,6 +47,7 @@ const STATUS_MAP: Record<SocketStatus, LiveAlertsStatus> = {
   reconnecting: "reconnecting",
   closed: "offline",
   forbidden: "offline",
+  unauthorized: "offline",
   not_found: "offline",
 };
 
@@ -73,7 +75,11 @@ export function useLiveAlerts(): LiveAlertsStatus {
     const socket = createReconnectingSocket({
       url: wsUrlFor("/ws/alerts"),
       socketFactory,
-      onStatus: setStatus,
+      onStatus: (next) => {
+        setStatus(next);
+        // No (valid) session: let the session query find out and the route guard take over.
+        if (next === "unauthorized") void refreshSession(queryClient).catch(() => undefined);
+      },
       onOpen: (isReconnect) => {
         if (!isReconnect) return;
         void queryClient.invalidateQueries({ queryKey: alertKeys.lists() });

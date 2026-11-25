@@ -15,6 +15,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_list_tanks,
 )
 from fermon.main import create_app
+from tests.auth_helpers import CSRF_HEADERS, role_headers, sign_in_fake_sessions
 from tests.fermentation.fakes import (
     InMemoryAlertRepository,
     InMemoryBatchRepository,
@@ -30,6 +31,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     readings, tanks = InMemoryReadingRepository(), InMemoryTankRepository()
     batches, alerts = InMemoryBatchRepository(), InMemoryAlertRepository()
     app: FastAPI = create_app()
+    sign_in_fake_sessions(app)
     app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(readings, tanks)
     app.dependency_overrides[get_list_tanks] = lambda: ListTanks(tanks, readings, batches, alerts)
     app.dependency_overrides[get_get_tank] = lambda: GetTank(tanks, readings, batches, alerts)
@@ -51,7 +53,9 @@ async def client() -> AsyncIterator[AsyncClient]:
     await alerts.add(opened[0])
     await alerts.add(opened[1].acknowledge(T0))
     await alerts.add(opened[2].resolve(T0))
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=CSRF_HEADERS
+    ) as client:
         yield client
 
 
@@ -124,3 +128,9 @@ async def test_get_blank_tank_id_returns_422(client: AsyncClient) -> None:
     assert response.status_code == 422
     [error] = response.json()["detail"]
     assert error["field"] == "tank_id"
+
+
+async def test_a_viewer_can_read_tanks(client: AsyncClient) -> None:
+    response = await client.get("/tanks", headers=role_headers("viewer"))
+
+    assert response.status_code == 200

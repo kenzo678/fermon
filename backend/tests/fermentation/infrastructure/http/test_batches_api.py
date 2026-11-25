@@ -29,6 +29,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_update_batch,
 )
 from fermon.main import create_app
+from tests.auth_helpers import CSRF_HEADERS, role_headers, sign_in_fake_sessions
 from tests.fermentation.fakes import (
     InMemoryAlertRepository,
     InMemoryBatchRepository,
@@ -75,6 +76,8 @@ async def client() -> AsyncIterator[AsyncClient]:
         return now[0]
 
     app: FastAPI = create_app()
+
+    sign_in_fake_sessions(app)
     overrides: Any = app.dependency_overrides
     overrides[get_create_batch] = lambda: CreateBatch(batches, tanks, profiles, clock, ids)
     overrides[get_update_batch] = lambda: UpdateBatch(batches, profiles)
@@ -86,7 +89,9 @@ async def client() -> AsyncIterator[AsyncClient]:
         tanks, readings, batches, InMemoryAlertRepository()
     )
     overrides[get_get_tank] = lambda: GetTank(tanks, readings, batches, InMemoryAlertRepository())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=CSRF_HEADERS
+    ) as client:
         client.clock = now  # type: ignore[attr-defined]
         yield client
 
@@ -109,7 +114,10 @@ async def create(client: AsyncClient, **overrides: Any) -> dict[str, Any]:
 
 async def test_templates_list_the_presets() -> None:
     app = create_app()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    sign_in_fake_sessions(app)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=CSRF_HEADERS
+    ) as client:
         response = await client.get("/batch-templates")
 
     assert response.status_code == 200
@@ -395,3 +403,20 @@ async def test_active_batch_on_tanks_carries_the_quality_profile(client: AsyncCl
     tank = (await client.get("/tanks/tank-1")).json()
 
     assert tank["active_batch"]["quality_profile_id"] == str(PROFILE_ID)
+
+
+async def test_a_viewer_reads_batches_but_cannot_change_them(client: AsyncClient) -> None:
+    viewer = role_headers("viewer")
+    created = await create(client)
+
+    listed = await client.get("/batches", headers=viewer)
+    forbidden = [
+        await client.post("/batches", json=body(), headers=viewer),
+        await client.patch(f"/batches/{created['id']}", json={"notes": "x"}, headers=viewer),
+        await client.post(f"/batches/{created['id']}/start", headers=viewer),
+        await client.post(f"/batches/{created['id']}/finish", headers=viewer),
+    ]
+
+    assert listed.status_code == 200
+    assert [r.status_code for r in forbidden] == [403, 403, 403, 403]
+    assert (await client.get(f"/batches/{created['id']}")).json()["status"] == "planned"

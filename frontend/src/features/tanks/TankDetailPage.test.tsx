@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API_URL } from "../../shared/api";
 import type { AggregatedPoint, AggregatedReadings } from "../../shared/api";
 import { createFakeSocketHub } from "../../test/fakeSocket";
-import { makeAlert, makeTank } from "../../test/fixtures";
+import { makeAlert, makeTank, makeUser } from "../../test/fixtures";
 import { renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
 
@@ -265,6 +265,14 @@ describe("TankDetailPage", () => {
       expect(bandOf(charts[0])).toEqual([[{ yAxis: 18 }, { yAxis: 21 }]]);
       expect(bandOf(charts[1])).toEqual([[{ yAxis: 0 }, { yAxis: 1 }]]);
       expect(bandOf(charts[2])).toBeUndefined();
+    });
+
+    it("does not offer a viewer to start a batch", async () => {
+      useHappyPath();
+      renderWithProviders(<Page />, { route: "/tanks/tank-1", user: makeUser({ role: "viewer" }) });
+      await screen.findAllByTestId("chart");
+      expect(screen.getByText(/No active batch/)).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Start a batch" })).not.toBeInTheDocument();
     });
 
     it("offers to start a batch, and draws no band, when none is active", async () => {

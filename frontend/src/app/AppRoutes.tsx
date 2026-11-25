@@ -1,11 +1,18 @@
 import { lazy, Suspense } from "react";
 import type { ReactNode } from "react";
-import { Route, Routes } from "react-router";
+import { Outlet, Route, Routes } from "react-router";
 import { AlertNavBadge } from "../features/alerts/AlertNavBadge";
 import { LiveAlertsProvider } from "../features/alerts/LiveAlerts";
+import { AccountMenu } from "../features/auth/AccountMenu";
+import { ChangePasswordPage } from "../features/auth/ChangePasswordPage";
+import { LoginPage } from "../features/auth/LoginPage";
+import { RequireAuth } from "../features/auth/RequireAuth";
+import { RequirePermission } from "../features/auth/RequirePermission";
+import { usePermissions, useSession } from "../features/auth";
 import { TanksOverviewPage } from "../features/tanks";
 import { LoadingState } from "../features/tanks/components/LoadingState";
-import { AppShell } from "../shared/ui";
+import { AppShell, DEFAULT_NAV } from "../shared/ui";
+import type { NavItem } from "../shared/ui";
 import { NotFoundPage } from "./NotFoundPage";
 import { RouteBoundary } from "./RouteErrorBoundary";
 
@@ -30,7 +37,13 @@ const AlertsPage = lazy(() =>
   import("../features/alerts/AlertsPage").then((module) => ({ default: module.AlertsPage })),
 );
 
+// Admin-only page; its code is not needed by anyone else.
+const UsersPage = lazy(() =>
+  import("../features/users/UsersPage").then((module) => ({ default: module.UsersPage })),
+);
+
 const NAV_BADGES = { "/alerts": <AlertNavBadge /> };
+const ADMIN_NAV: NavItem[] = [...DEFAULT_NAV, { to: "/users", label: "Users", sections: ["/users"] }];
 
 function Lazy({ children }: { children: ReactNode }) {
   return (
@@ -40,11 +53,32 @@ function Lazy({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Everything behind the login: the header (navigation by role, account menu) and the live alerts
+ * socket. A user who must replace a temporary password gets neither, because the API refuses
+ * everything else until they do.
+ */
+function AuthenticatedLayout() {
+  const forcedChange = useSession().data?.must_change_password === true;
+  const { canManageUsers } = usePermissions();
+  const shell = (
+    <AppShell
+      nav={forcedChange ? [] : canManageUsers ? ADMIN_NAV : DEFAULT_NAV}
+      account={<AccountMenu showChangePassword={!forcedChange} />}
+      navBadges={forcedChange ? {} : NAV_BADGES}
+    >
+      <Outlet />
+    </AppShell>
+  );
+  return forcedChange ? shell : <LiveAlertsProvider>{shell}</LiveAlertsProvider>;
+}
+
 export function AppRoutes() {
   return (
-    <LiveAlertsProvider>
-      <AppShell navBadges={NAV_BADGES}>
-        <Routes>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<AuthenticatedLayout />}>
           <Route path="/" element={<TanksOverviewPage />} />
           <Route
             path="/tanks/:tankId"
@@ -65,9 +99,11 @@ export function AppRoutes() {
           <Route
             path="/batches/new"
             element={
-              <Lazy>
-                <NewBatchPage />
-              </Lazy>
+              <RequirePermission allow={(permissions) => permissions.canWriteBatches}>
+                <Lazy>
+                  <NewBatchPage />
+                </Lazy>
+              </RequirePermission>
             }
           />
           <Route
@@ -86,9 +122,20 @@ export function AppRoutes() {
               </Lazy>
             }
           />
+          <Route path="/account/password" element={<ChangePasswordPage />} />
+          <Route
+            path="/users"
+            element={
+              <RequirePermission allow={(permissions) => permissions.canManageUsers}>
+                <Lazy>
+                  <UsersPage />
+                </Lazy>
+              </RequirePermission>
+            }
+          />
           <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </AppShell>
-    </LiveAlertsProvider>
+        </Route>
+      </Route>
+    </Routes>
   );
 }

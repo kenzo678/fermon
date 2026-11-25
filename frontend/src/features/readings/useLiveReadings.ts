@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Measurement, Reading, Tank } from "../../shared/api";
 import { createReconnectingSocket, useSocketFactory, wsUrlFor } from "../../shared/realtime";
 import type { SocketStatus } from "../../shared/realtime";
+import { refreshSession } from "../auth/api";
 import { tankKeys } from "../tanks/api";
 import { readingKeys } from "./api";
 
@@ -59,7 +60,7 @@ function updateCaches(queryClient: QueryClient, reading: Reading): void {
   );
 }
 
-const TERMINAL: readonly SocketStatus[] = ["forbidden", "not_found"];
+const TERMINAL: readonly SocketStatus[] = ["forbidden", "unauthorized", "not_found"];
 
 /**
  * Terminal sockets (unknown tank, forbidden origin) are ignored so one bad tank does not mask
@@ -128,7 +129,11 @@ export function useLiveReadings(tankIds: string[]): LiveStatus {
       createReconnectingSocket({
         url: wsUrlFor(`/ws/tanks/${encodeURIComponent(tankId)}`),
         socketFactory,
-        onStatus: (status) => setStatuses((prev) => ({ ...prev, [tankId]: status })),
+        onStatus: (status) => {
+          setStatuses((prev) => ({ ...prev, [tankId]: status }));
+          // No (valid) session: let the session query find out and the route guard take over.
+          if (status === "unauthorized") void refreshSession(queryClient).catch(() => undefined);
+        },
         onOpen: (isReconnect) => {
           if (!isReconnect) return;
           scheduleListInvalidation();

@@ -15,6 +15,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_list_alerts,
 )
 from fermon.main import create_app
+from tests.auth_helpers import CSRF_HEADERS, role_headers, sign_in_fake_sessions
 from tests.fermentation.fakes import InMemoryAlertRepository
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -60,11 +61,14 @@ async def client() -> AsyncIterator[AsyncClient]:
         )
     )
     app: FastAPI = create_app()
+    sign_in_fake_sessions(app)
     overrides: Any = app.dependency_overrides
     overrides[get_list_alerts] = lambda: ListAlerts(alerts)
     overrides[get_get_alert] = lambda: GetAlert(alerts)
     overrides[get_acknowledge_alert] = lambda: AcknowledgeAlert(alerts, lambda: NOW)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=CSRF_HEADERS
+    ) as client:
         yield client
 
 
@@ -180,3 +184,15 @@ async def test_acknowledge_validates_the_body_and_the_alert(client: AsyncClient)
     assert unknown.status_code == 404
     assert bad.status_code == 422 and bad.json()["detail"][0]["field"] == "version"
     assert extra.status_code == 422
+
+
+async def test_a_viewer_reads_alerts_but_cannot_acknowledge_them(client: AsyncClient) -> None:
+    viewer = role_headers("viewer")
+
+    listed = await client.get("/alerts", headers=viewer)
+    acknowledged = await client.post(f"/alerts/{UUID(int=1)}/acknowledge", headers=viewer)
+    unchanged = await client.get(f"/alerts/{UUID(int=1)}", headers=viewer)
+
+    assert listed.status_code == 200
+    assert acknowledged.status_code == 403
+    assert unchanged.json()["status"] == "open"

@@ -13,8 +13,11 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     ReadingFeedDep,
 )
 from fermon.fermentation.infrastructure.http.schemas import AlertEventOut, AlertOut, ReadingOut
+from fermon.identity.domain import User
+from fermon.identity.infrastructure.http.dependencies import WebSocketUserDep
 
 # Application close codes (4000-4999 are reserved for applications by RFC 6455).
+CLOSE_UNAUTHENTICATED = 4401  # no valid session cookie (or a temporary password is still set)
 CLOSE_FORBIDDEN_ORIGIN = 4403
 CLOSE_TANK_NOT_FOUND = 4404
 CLOSE_INTERNAL_ERROR = 1011  # RFC 6455 standard code: the server hit an unexpected condition
@@ -33,25 +36,43 @@ def _origin_allowed(websocket: WebSocket) -> bool:
     if origin is None:
         return True
     allowed: list[str] = websocket.app.state.cors_origins
-    return "*" in allowed or origin in allowed
+    return origin in allowed
+
+
+async def _reject(websocket: WebSocket, code: int, reason: str) -> None:
+    # Accept first: a close before the handshake completes (an HTTP 403) reaches browsers as a
+    # bare 1006, so the application close code would never be observable.
+    await websocket.accept()
+    await websocket.close(code=code, reason=reason)
+
+
+async def _admit(websocket: WebSocket, user: User | None) -> bool:
+    """Origin first (browsers send cookies on cross-site WebSockets), then the session."""
+    if not _origin_allowed(websocket):
+        await _reject(websocket, CLOSE_FORBIDDEN_ORIGIN, "origin not allowed")
+        return False
+    if user is None:
+        await _reject(websocket, CLOSE_UNAUTHENTICATED, "authentication required")
+        return False
+    return True
 
 
 @router.websocket("/ws/tanks/{tank_id}")
 async def stream_tank_readings(
-    websocket: WebSocket, tank_id: str, get_tank: GetTankDep, feed: ReadingFeedDep
+    websocket: WebSocket,
+    tank_id: str,
+    user: WebSocketUserDep,
+    get_tank: GetTankDep,
+    feed: ReadingFeedDep,
 ) -> None:
     """Live stream of a tank's newly stored readings, one JSON text message per reading.
 
     Best-effort: readings stored while the client or the server-side listener was disconnected
     are not replayed (backfill through the REST API), and a client that cannot keep up loses its
-    oldest messages. Closes with 4403 for a disallowed Origin, 4404 for an unknown tank and 1011
-    when the tank lookup fails.
+    oldest messages. Requires the session cookie. Closes with 4403 for a disallowed Origin, 4401
+    without a valid session, 4404 for an unknown tank and 1011 when the tank lookup fails.
     """
-    if not _origin_allowed(websocket):
-        # Accept first: a close before the handshake completes (an HTTP 403) reaches browsers
-        # as a bare 1006, so the 4403 code would never be observable.
-        await websocket.accept()
-        await websocket.close(code=CLOSE_FORBIDDEN_ORIGIN, reason="origin not allowed")
+    if not await _admit(websocket, user):
         return
     try:
         tank = (await get_tank.execute(tank_id)).tank
@@ -71,17 +92,16 @@ async def stream_tank_readings(
 
 
 @router.websocket("/ws/alerts")
-async def stream_alerts(websocket: WebSocket, feed: AlertFeedDep) -> None:
+async def stream_alerts(websocket: WebSocket, user: WebSocketUserDep, feed: AlertFeedDep) -> None:
     """Live stream of every alert change (all tanks): `{"type": "alert", "alert": AlertOut}`.
 
     One message per stored revision: opened, acknowledged and resolved. Best-effort like the
     readings stream: nothing is replayed (backfill through `GET /alerts`) and a client that cannot
-    keep up loses its oldest messages. Closes with 4403 for a disallowed Origin and 1011 when the
-    server cannot subscribe to the alert feed.
+    keep up loses its oldest messages. Requires the session cookie. Closes with 4403 for a
+    disallowed Origin, 4401 without a valid session and 1011 when the server cannot subscribe to
+    the alert feed.
     """
-    if not _origin_allowed(websocket):
-        await websocket.accept()  # accept first so browsers can observe the close code
-        await websocket.close(code=CLOSE_FORBIDDEN_ORIGIN, reason="origin not allowed")
+    if not await _admit(websocket, user):
         return
     with ExitStack() as stack:
         try:

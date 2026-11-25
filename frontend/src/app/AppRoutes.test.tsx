@@ -4,10 +4,11 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { API_URL } from "../shared/api";
 import { createFakeSocketHub } from "../test/fakeSocket";
-import { makeAlert, makeBatch, makeTank } from "../test/fixtures";
+import { makeAlert, makeBatch, makeTank, makeUser } from "../test/fixtures";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { server } from "../test/server";
 import { AppRoutes } from "./AppRoutes";
+import { createQueryClient } from "./queryClient";
 
 // Empty series keep ECharts (no canvas in jsdom) out of the route tests.
 function mockDetail(id: string) {
@@ -129,5 +130,100 @@ describe("AppRoutes", () => {
     await userEvent.click(screen.getByRole("link", { name: "Tanks" }));
     await screen.findByRole("heading", { level: 2, name: "Tanks" });
     expect(hub.sockets.filter((s) => s.url.endsWith("/ws/alerts"))).toHaveLength(1);
+  });
+});
+
+describe("AppRoutes authentication", () => {
+  it("sends an anonymous visitor to the login page and opens no sockets", () => {
+    const hub = createFakeSocketHub();
+    renderWithProviders(<AppRoutes />, { route: "/batches", user: null, socketFactory: hub.factory });
+    expect(screen.getByRole("heading", { level: 2, name: "Sign in" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+    expect(hub.sockets).toHaveLength(0);
+  });
+
+  it("returns to the requested page after signing in", async () => {
+    server.use(
+      http.post(`${API_URL}/auth/login`, () => HttpResponse.json({ user: makeUser() })),
+      http.get(`${API_URL}/batches`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AppRoutes />, { route: "/batches", user: null });
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Batches" })).toBeInTheDocument();
+  });
+
+  it("shows who is signed in and signs out back to the login page", async () => {
+    server.use(
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])),
+      http.post(`${API_URL}/auth/logout`, () => new HttpResponse(null, { status: 204 })),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/", user: makeUser({ display_name: "Bea Brewer", role: "brewer" }) });
+    const account = await screen.findByRole("group", { name: "Account" });
+    expect(account).toHaveTextContent("Bea Brewer");
+    expect(account).toHaveTextContent("brewer");
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("offers the Users section to admins only", async () => {
+    server.use(http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])));
+    const admin = renderWithProviders(<AppRoutes />, { route: "/", user: makeUser({ role: "admin" }) });
+    expect(await screen.findByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
+    admin.unmount();
+    renderWithProviders(<AppRoutes />, { route: "/", user: makeUser({ role: "brewer" }) });
+    await screen.findByRole("heading", { level: 2, name: "Tanks" });
+    expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+  });
+
+  it("renders the users page for an admin and refuses everyone else", async () => {
+    server.use(
+      http.get(`${API_URL}/users`, () => HttpResponse.json([makeUser()])),
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json([])),
+    );
+    const admin = renderWithProviders(<AppRoutes />, { route: "/users", user: makeUser({ role: "admin" }) });
+    expect(await screen.findByRole("heading", { level: 2, name: "Users" })).toBeInTheDocument();
+    admin.unmount();
+    renderWithProviders(<AppRoutes />, { route: "/users", user: makeUser({ role: "brewer" }) });
+    expect(await screen.findByRole("heading", { name: "Not allowed" })).toBeInTheDocument();
+  });
+
+  it("keeps a viewer out of the new-batch form", async () => {
+    server.use(http.get(`${API_URL}/tanks`, () => HttpResponse.json([])));
+    renderWithProviders(<AppRoutes />, { route: "/batches/new", user: makeUser({ role: "viewer" }) });
+    expect(await screen.findByRole("heading", { name: "Not allowed" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Beer name")).not.toBeInTheDocument();
+  });
+
+  it("confines a temporary password to the change-password page, with no navigation or sockets", () => {
+    const hub = createFakeSocketHub();
+    renderWithProviders(<AppRoutes />, {
+      route: "/batches",
+      user: makeUser({ must_change_password: true }),
+      socketFactory: hub.factory,
+    });
+    expect(screen.getByRole("heading", { level: 2, name: "Change password" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(hub.sockets).toHaveLength(0);
+  });
+
+  it("reaches the change-password page from the account menu", async () => {
+    server.use(http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1")])));
+    renderWithProviders(<AppRoutes />, { route: "/" });
+    await userEvent.click(await screen.findByRole("link", { name: "Change password" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Change password" })).toBeInTheDocument();
+  });
+
+  it("sends the user to login when the session ends under them", async () => {
+    server.use(
+      http.get(`${API_URL}/tanks`, () => HttpResponse.json({ detail: [] }, { status: 401 })),
+      http.get(`${API_URL}/auth/me`, () => HttpResponse.json({ detail: [] }, { status: 401 })),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/", queryClient: createQueryClient({ retry: false }) });
+    expect(await screen.findByRole("heading", { level: 2, name: "Sign in" })).toBeInTheDocument();
   });
 });

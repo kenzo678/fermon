@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends
 from fastapi.requests import HTTPConnection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from fermon.fermentation.application.batch_report import BuildBatchReport
 from fermon.fermentation.application.batches import (
     Clock,
     CreateBatch,
@@ -103,6 +104,27 @@ def get_clock() -> Clock:
 
 
 ClockDep = Annotated[Clock, Depends(get_clock)]
+
+
+def get_report_max_gap(connection: HTTPConnection) -> timedelta:
+    gap: timedelta = connection.app.state.report_max_gap
+    return gap
+
+
+def get_build_batch_report(
+    session_factory: SessionFactory,
+    clock: ClockDep,
+    max_gap: Annotated[timedelta, Depends(get_report_max_gap)],
+) -> BuildBatchReport:
+    return BuildBatchReport(
+        SqlAlchemyBatchRepository(session_factory),
+        SqlAlchemyReadingRepository(session_factory),
+        SqlAlchemyAlertRepository(session_factory),
+        SqlAlchemyLabAnalysisRepository(session_factory),
+        SqlAlchemyQualityProfileRepository(session_factory),
+        clock,
+        max_gap,
+    )
 
 
 def get_create_batch(session_factory: SessionFactory, clock: ClockDep) -> CreateBatch:
@@ -207,6 +229,7 @@ ListTanksDep = Annotated[ListTanks, Depends(get_list_tanks)]
 GetTankDep = Annotated[GetTank, Depends(get_get_tank)]
 ReadingFeedDep = Annotated[ReadingFeed, Depends(get_reading_feed)]
 ListAggregatedReadingsDep = Annotated[ListAggregatedReadings, Depends(get_list_aggregated_readings)]
+BuildBatchReportDep = Annotated[BuildBatchReport, Depends(get_build_batch_report)]
 CreateBatchDep = Annotated[CreateBatch, Depends(get_create_batch)]
 UpdateBatchDep = Annotated[UpdateBatch, Depends(get_update_batch)]
 StartBatchDep = Annotated[StartBatch, Depends(get_start_batch)]

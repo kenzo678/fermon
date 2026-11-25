@@ -25,6 +25,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_record_lab_analysis,
 )
 from fermon.main import create_app
+from tests.auth_helpers import CSRF_HEADERS, role_headers, sign_in_fake_sessions
 from tests.fermentation.fakes import (
     InMemoryBatchRepository,
     InMemoryLabAnalysisRepository,
@@ -81,13 +82,17 @@ async def client() -> AsyncIterator[AsyncClient]:
     ids = Ids()
 
     app: FastAPI = create_app()
+
+    sign_in_fake_sessions(app)
     overrides: Any = app.dependency_overrides
     overrides[get_record_lab_analysis] = lambda: RecordLabAnalysis(
         batches, profiles, analyses, lambda: NOW, ids
     )
     overrides[get_list_lab_analyses] = lambda: ListLabAnalyses(batches, analyses)
     overrides[get_get_lab_analysis] = lambda: GetLabAnalysis(analyses)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=CSRF_HEADERS
+    ) as client:
         yield client
 
 
@@ -189,3 +194,16 @@ async def test_get_one_analysis(client: AsyncClient) -> None:
     assert (found.status_code, found.json()) == (200, created)
     assert (unknown.status_code, error_fields(unknown)) == (404, ["analysis_id"])
     assert (malformed.status_code, error_fields(malformed)) == (422, ["analysis_id"])
+
+
+async def test_a_viewer_reads_analyses_but_cannot_record_them(client: AsyncClient) -> None:
+    viewer = role_headers("viewer")
+    created = (await post(client)).json()
+
+    recorded = await client.post(f"/batches/{LINKED}/lab-analyses", json=body(), headers=viewer)
+    found = await client.get(f"/lab-analyses/{created['id']}", headers=viewer)
+    listed = await client.get(f"/batches/{LINKED}/lab-analyses", headers=viewer)
+
+    assert recorded.status_code == 403
+    assert found.status_code == 200
+    assert [a["id"] for a in listed.json()] == [created["id"]]

@@ -133,3 +133,17 @@ export interface ErrorDetail {
 export interface ErrorResponse {
   detail: ErrorDetail[];
 }
+
+export type Role = "admin" | "brewer" | "viewer";
+
+/** The public view of a user; the API never returns the password hash. */
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  role: Role;
+  must_change_password: boolean;
+  active: boolean;
+  /** Optimistic-concurrency counter: send it back on edits. */
+  version: number;
+}

@@ -1,7 +1,8 @@
 import type { APIRequestContext } from "@playwright/test";
 
+import { API_URL } from "./session";
+
 /** Direct API access for test setup and cleanup; the UI under test is never used for these. */
-export const API_URL = process.env.E2E_API_URL ?? "http://api:8000";
 
 /** Only one batch can be active per tank, and these specs run serially, so they all share this tank. */
 export const BATCH_TANK = "tank-1";

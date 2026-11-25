@@ -4,6 +4,7 @@ from fermon.fermentation.application.alerts import (
     ResolveBatchAlerts,
     ResolveOrphanAlerts,
 )
+from fermon.fermentation.application.batch_report import BuildBatchReport
 from fermon.fermentation.application.batches import (
     Clock,
     CreateBatch,
@@ -56,6 +57,7 @@ from fermon.fermentation.application.quality import (
 from fermon.fermentation.application.tank_overview import TankOverview
 
 __all__ = [
+    "BuildBatchReport",
     "GetLabAnalysis",
     "LabAnalysisRepository",
     "ListLabAnalyses",

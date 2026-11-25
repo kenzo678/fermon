@@ -7,9 +7,10 @@ import { API_URL } from "../../shared/api";
 import type { Tank } from "../../shared/api";
 import { RealtimeProvider } from "../../shared/realtime";
 import { createFakeSocketHub } from "../../test/fakeSocket";
-import { makeReading, makeTank } from "../../test/fixtures";
+import { makeReading, makeTank, makeUser } from "../../test/fixtures";
 import { createTestQueryClient } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
+import { sessionKeys } from "../auth/api";
 import { tankKeys } from "../tanks/api";
 import { useTanksQuery } from "../tanks/useTanksQuery";
 import { useTankQuery } from "../tanks/useTankQuery";
@@ -131,6 +132,30 @@ describe("useLiveReadings sockets", () => {
   });
 });
 
+describe("useLiveReadings session", () => {
+  it("asks the server about the session when a socket is refused for lack of one (4401), and does not reconnect", async () => {
+    let meCalls = 0;
+    server.use(
+      http.get(`${API_URL}/auth/me`, () => {
+        meCalls += 1;
+        return HttpResponse.json({ detail: [] }, { status: 401 });
+      }),
+    );
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { hub, result, queryClient } = setup(["tank-1"]);
+    queryClient.setQueryData(sessionKeys.current(), makeUser());
+    act(() => hub.latest("/ws/tanks/tank-1").serverClose(4401));
+    expect(result.current).toBe("offline");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(hub.sockets).toHaveLength(1);
+    vi.useRealTimers();
+    await waitFor(() => expect(meCalls).toBe(1));
+    await waitFor(() => expect(queryClient.getQueryData(sessionKeys.current())).toBeNull());
+  });
+});
+
 describe("aggregateStatus", () => {
   const cases: [string, string[], Record<string, SocketStatus>, LiveStatus][] = [
     ["no ids", [], {}, "offline"],
@@ -138,6 +163,8 @@ describe("aggregateStatus", () => {
     ["all open", ["a", "b"], { a: "open", b: "open" }, "live"],
     ["open + not_found", ["a", "b"], { a: "open", b: "not_found" }, "live"],
     ["open + forbidden", ["a", "b"], { a: "open", b: "forbidden" }, "live"],
+    ["open + unauthorized", ["a", "b"], { a: "open", b: "unauthorized" }, "live"],
+    ["only unauthorized", ["a", "b"], { a: "unauthorized", b: "unauthorized" }, "offline"],
     ["open + reconnecting", ["a", "b"], { a: "open", b: "reconnecting" }, "reconnecting"],
     ["connecting + not_found", ["a", "b"], { a: "connecting", b: "not_found" }, "reconnecting"],
     ["only terminal", ["a", "b"], { a: "not_found", b: "forbidden" }, "offline"],

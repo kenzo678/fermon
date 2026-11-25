@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ report.beer_name }} - batch report</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 15mm 20mm 15mm;
+    @bottom-left { content: "Generated {{ generated }}"; font-size: 8pt; color: #666; font-family: "DejaVu Sans", Arial, sans-serif; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #666; font-family: "DejaVu Sans", Arial, sans-serif; }
+  }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 9pt; color: #222; }
+  h1 { font-size: 18pt; margin: 0; }
+  h2 { font-size: 12pt; margin: 18pt 0 6pt; border-bottom: 1px solid #bbb; padding-bottom: 2pt; }
+  .subtitle { color: #555; margin: 2pt 0 8pt; }
+  .badge { display: inline-block; padding: 1pt 6pt; border: 1px solid #999; border-radius: 3pt; font-size: 8pt; }
+  .partial { border-color: #c4620a; color: #8a4207; font-weight: bold; }
+  table { border-collapse: collapse; width: 100%; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid #ccc; padding: 3pt 5pt; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; font-weight: bold; }
+  td.num, th.num { text-align: right; }
+  table.summary th { width: 28%; }
+  .chart { margin: 6pt 0; page-break-inside: avoid; }
+  .chart svg { width: 100%; height: auto; }
+  .note { color: #555; font-size: 8pt; margin: 4pt 0; }
+  .empty { color: #666; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>{{ report.beer_name }}</h1>
+<p class="subtitle">
+  Fermentation report &middot; {{ report.style }} &middot; tank {{ report.tank_id }}
+  <span class="badge{% if report.is_partial %} partial{% endif %}">{{ report.status_label }}</span>
+</p>
+
+<h2>Batch</h2>
+<table class="summary">
+  <tr><th>Beer</th><td>{{ report.beer_name }}</td></tr>
+  <tr><th>Style</th><td>{{ report.style }}</td></tr>
+  <tr><th>Tank</th><td>{{ report.tank_id }}</td></tr>
+  <tr><th>Status</th><td>{{ report.status.value }}</td></tr>
+  <tr><th>Quality profile</th><td>{{ report.profile_name or "-" }}</td></tr>
+  <tr><th>Started</th><td>{{ report.started_at | moment }} UTC</td></tr>
+  {% if report.finished_at %}
+  <tr><th>Finished</th><td>{{ report.finished_at | moment }} UTC</td></tr>
+  {% else %}
+  <tr><th>Expected end</th><td>{{ report.expected_end | moment }}{% if report.expected_end %} UTC{% endif %}</td></tr>
+  {% endif %}
+  <tr><th>Duration</th><td>{{ report.duration | duration }}{% if report.is_partial %} so far{% endif %}</td></tr>
+</table>
+
+<h2>Statistics</h2>
+{% if report.stats %}
+<table>
+  <tr>
+    <th>Measurement</th><th class="num">Readings</th><th class="num">Min</th><th class="num">Max</th>
+    <th class="num">Mean</th><th class="num">First</th><th class="num">Last</th>
+    <th>Target</th><th class="num">In range</th>
+  </tr>
+  {% for s in report.stats %}
+  <tr>
+    <td>{{ s.measurement.value | capitalize }} ({{ s.measurement.unit }})</td>
+    <td class="num">{{ s.count }}</td>
+    <td class="num">{{ s.minimum | number }}</td><td class="num">{{ s.maximum | number }}</td>
+    <td class="num">{{ s.mean | number }}</td>
+    <td class="num">{{ s.first | number }}</td><td class="num">{{ s.last | number }}</td>
+    <td>{% if s.target_min is not none or s.target_max is not none %}{{ s.target_min | number }} to {{ s.target_max | number }}{% else %}-{% endif %}</td>
+    <td class="num">{% if s.in_range_percent is none %}-{% else %}{{ s.in_range_percent | number(1) }} %{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="note">
+  Computed from 1-minute aggregates of the readings, not from raw samples: first and last are
+  the averages of the first and last minute. In range is the share of observed time within the
+  batch target, each sample holding its value until the next one; gaps longer than
+  {{ report.max_gap | duration }} are not counted as in range, nor as observed time.
+</p>
+{% else %}
+<p class="empty">No readings were recorded for this batch.</p>
+{% endif %}
+
+{% if charts %}
+<h2>Charts</h2>
+{% for title, svg in charts %}
+<div class="chart">{{ svg }}</div>
+{% endfor %}
+<p class="note">
+  Shaded bands are the batch target ranges.
+  {% if report.expected_abv %}
+  Expected ABV is linear: 0 % at the start to {{ report.expected_final_abv | number(1) }} % at the expected end
+  ({{ report.expected_end | moment }} UTC), flat afterwards.
+  {% elif report.expected_final_abv is not none %}
+  No expected ABV curve: the batch has an expected final ABV of {{ report.expected_final_abv | number(1) }} %
+  but no expected end date.
+  {% endif %}
+</p>
+{% endif %}
+
+<h2>Alerts</h2>
+{% if report.alerts %}
+<table>
+  <tr>
+    <th>Kind</th><th>Measurement</th><th>Opened (UTC)</th><th>Acknowledged (UTC)</th>
+    <th>Resolved (UTC)</th><th>Duration</th><th>Resolution</th>
+  </tr>
+  {% for a in report.alerts %}
+  <tr>
+    <td>{{ "Out of range" if a.kind.value == "out_of_range" else "Silent sensor" }}</td>
+    <td>{{ a.measurement.value if a.measurement else "-" }}</td>
+    <td>{{ a.opened_at | moment }}</td>
+    <td>{{ a.acknowledged_at | moment }}</td>
+    <td>{{ a.resolved_at | moment }}</td>
+    <td>{{ a.duration | duration }}{% if a.ongoing %} (ongoing){% endif %}</td>
+    <td>{{ (a.resolution or "-") | replace("_", " ") }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No alerts were raised.</p>
+{% endif %}
+
+<h2>Lab analyses</h2>
+{% if report.analyses %}
+<table>
+  <tr><th>Stage</th><th>Sampled (UTC)</th><th>Analyst</th><th>Parameter</th><th class="num">Value</th><th>Status</th></tr>
+  {% for analysis in report.analyses %}
+  {% for r in analysis.results %}
+  <tr>
+    <td>{{ analysis.stage.value | replace("_", " ") }}</td>
+    <td>{{ analysis.sampled_at | moment }}</td>
+    <td>{{ analysis.analyst or "-" }}</td>
+    <td>{{ r.parameter.label }}</td>
+    <td class="num">{{ r.value | number }} {{ r.parameter.unit }}</td>
+    <td>{{ r.status.value | replace("_", " ") }}</td>
+  </tr>
+  {% endfor %}
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No lab analyses were recorded.</p>
+{% endif %}
+</body>
+</html>

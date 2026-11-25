@@ -13,6 +13,14 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_list_readings,
 )
 from fermon.main import create_app
+from fermon.shared.config import Settings
+from tests.auth_helpers import (
+    CSRF_HEADERS,
+    DEVICE_HEADERS,
+    DEVICE_KEY,
+    role_headers,
+    sign_in_fake_sessions,
+)
 from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
 
 
@@ -36,7 +44,8 @@ def repository() -> InMemoryReadingRepository:
 
 @pytest.fixture
 def app(repository: InMemoryReadingRepository) -> FastAPI:
-    app = create_app()
+    app = create_app(Settings(device_api_keys=[DEVICE_KEY]))
+    sign_in_fake_sessions(app)
     app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(
         repository, InMemoryTankRepository()
     )
@@ -46,7 +55,11 @@ def app(repository: InMemoryReadingRepository) -> FastAPI:
 
 @pytest_asyncio.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={**CSRF_HEADERS, **DEVICE_HEADERS},
+    ) as client:
         yield client
 
 
@@ -229,3 +242,61 @@ async def test_post_malformed_json_reports_no_field(client: AsyncClient) -> None
     assert response.status_code == 422
     [error] = response.json()["detail"]
     assert error["field"] is None
+
+
+async def anonymous_client(app: FastAPI, headers: dict[str, str]) -> AsyncClient:
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers)
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [{}, {"X-Device-Key": "wrong"}, {"X-Device-Key": ""}, {"X-Device-Key": DEVICE_KEY + "x"}],
+    ids=["missing", "wrong", "empty", "prefix-match"],
+)
+async def test_post_without_a_valid_device_key_is_401(
+    app: FastAPI, repository: InMemoryReadingRepository, headers: dict[str, str]
+) -> None:
+    async with await anonymous_client(app, headers) as client:
+        response = await client.post("/readings", json=make_body())
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": [{"field": "X-Device-Key", "message": "a valid X-Device-Key header is required"}]
+    }
+    assert repository.readings == []
+
+
+async def test_a_user_session_does_not_replace_the_device_key(app: FastAPI) -> None:
+    async with await anonymous_client(app, {**CSRF_HEADERS, **role_headers("admin")}) as client:
+        response = await client.post("/readings", json=make_body())
+
+    assert response.status_code == 401
+
+
+async def test_the_device_route_needs_neither_a_session_nor_the_csrf_header(
+    app: FastAPI,
+) -> None:
+    async with await anonymous_client(app, DEVICE_HEADERS) as client:
+        response = await client.post("/readings", json=make_body())
+
+    assert response.status_code == 201
+
+
+async def test_any_configured_device_key_is_accepted() -> None:
+    app = create_app(Settings(device_api_keys=["first-key", "second-key"]))
+    app.dependency_overrides[get_ingest_reading] = lambda: IngestReading(
+        InMemoryReadingRepository(), InMemoryTankRepository()
+    )
+    async with await anonymous_client(app, {"X-Device-Key": "second-key"}) as client:
+        response = await client.post("/readings", json=make_body())
+
+    assert response.status_code == 201
+
+
+async def test_without_configured_keys_http_ingestion_is_disabled() -> None:
+    app = create_app(Settings(device_api_keys=[]))
+    async with await anonymous_client(app, DEVICE_HEADERS) as client:
+        response = await client.post("/readings", json=make_body())
+
+    assert response.status_code == 401
+    assert "no device API keys are configured" in response.json()["detail"][0]["message"]

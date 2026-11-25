@@ -66,10 +66,34 @@ from fermon.fermentation.domain.quality import (
     quality_template_specs,
 )
 from fermon.fermentation.domain.reading import Reading
+from fermon.fermentation.domain.report import (
+    DEFAULT_MAX_GAP,
+    MAX_CHART_POINTS,
+    PARTIAL_LABEL,
+    REPORT_BUCKET,
+    BatchReport,
+    MeasurementStats,
+    ReportAlert,
+    SeriesPoint,
+    build_batch_report,
+    downsample,
+    in_range_percent,
+)
 from fermon.fermentation.domain.tank import Tank
 from fermon.fermentation.domain.time_range import validate_time_range
 
 __all__ = [
+    "DEFAULT_MAX_GAP",
+    "MAX_CHART_POINTS",
+    "PARTIAL_LABEL",
+    "REPORT_BUCKET",
+    "BatchReport",
+    "MeasurementStats",
+    "ReportAlert",
+    "SeriesPoint",
+    "build_batch_report",
+    "downsample",
+    "in_range_percent",
     "ALERTABLE_MEASUREMENTS",
     "Alert",
     "AlertAction",

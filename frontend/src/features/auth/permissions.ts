@@ -9,5 +9,6 @@ export const canWriteBatches = (role: Role): boolean => BREWING.includes(role);
 export const canAcknowledgeAlerts = (role: Role): boolean => BREWING.includes(role);
 export const canWriteQualityProfiles = (role: Role): boolean => BREWING.includes(role);
 export const canRecordLabAnalyses = (role: Role): boolean => BREWING.includes(role);
-// Every role may download reports; the parameter keeps the signature uniform with the others.
-export const canDownloadReports = (role: Role): boolean => BREWING.includes(role) || role === "viewer";
+// Every role, viewers included, may download reports.
+const REPORT_READERS: readonly Role[] = ["admin", "brewer", "viewer"];
+export const canDownloadReports = (role: Role): boolean => REPORT_READERS.includes(role);

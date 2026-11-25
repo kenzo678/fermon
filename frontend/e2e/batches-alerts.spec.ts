@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Download, Page } from "@playwright/test";
 
 import {
   BATCH_TANK,
@@ -187,6 +189,50 @@ test("warns about a conflicting change when saving a stale batch", async ({ page
     await expect(page.getByText(/changed since you opened it/)).toBeVisible();
     await page.getByRole("button", { name: "Reload batch" }).click();
     await expect(name).toHaveValue(elsewhere);
+  } finally {
+    await releaseTank(request);
+  }
+});
+
+// Reports share this file (and its serial mode) because they need the one tank too.
+async function contentOf(download: Download): Promise<Buffer> {
+  const path = await download.path();
+  return readFile(path);
+}
+
+test("downloads the PDF and CSV reports of a batch, partial while active and complete once finished", async ({
+  page,
+  request,
+}) => {
+  await releaseTank(request);
+  const beer = `E2E Report ${Date.now()}`;
+  try {
+    const batch = await createBatch(request, beer, ATTAINABLE);
+    await page.goto(`/batches/${batch.id}`);
+    await expect(page.getByRole("heading", { name: beer })).toBeVisible();
+    // Planned batches have no report yet.
+    await expect(page.getByRole("link", { name: "Download PDF" })).toHaveCount(0);
+
+    await startBatch(request, batch.id);
+    await page.reload();
+    await expect(page.getByText(/report is partial/i)).toBeVisible();
+
+    await page.getByRole("button", { name: "Finish batch" }).click();
+    await page.getByRole("button", { name: "Yes, finish batch" }).click();
+    await expect(page.getByText("Finished", { exact: true })).toBeVisible();
+    await expect(page.getByText(/report is partial/i)).toHaveCount(0);
+
+    const pdfDownload = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Download PDF" }).click();
+    const pdf = await pdfDownload;
+    expect(pdf.suggestedFilename()).toMatch(/^batch-.*\.pdf$/);
+    expect((await contentOf(pdf)).subarray(0, 5).toString("latin1")).toBe("%PDF-");
+
+    const csvDownload = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Download CSV" }).click();
+    const csv = await csvDownload;
+    expect(csv.suggestedFilename()).toMatch(/^batch-.*\.csv$/);
+    expect((await contentOf(csv)).toString("utf8")).toContain("Batch summary");
   } finally {
     await releaseTank(request);
   }

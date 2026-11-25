@@ -445,6 +445,10 @@ La fecha del nombre es la de generación (UTC). Un lote activo da un reporte **p
 «Partial (batch in progress)» y calculado hasta el momento de la descarga; uno finalizado cubre de
 `started_at` a `finished_at`.
 
+Desde la interfaz, el detalle de un lote `active` o `finished` muestra los enlaces «Download PDF» y
+«Download CSV» (también para `viewer`; con un aviso de reporte parcial si el lote sigue activo). Son enlaces
+normales, no `fetch`: el navegador envía la cookie de sesión y baja el archivo directamente.
+
 **Contenido del PDF** (plantilla HTML con Jinja2, impresa con WeasyPrint; los gráficos son SVG en línea
 generados en Python, sin JavaScript ni librerías de gráficos): datos del lote (cerveza, estilo, tanque,
 estado, perfil de calidad, inicio, fin o fin esperado, duración), estadísticas por medición (lecturas, mín,

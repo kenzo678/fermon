@@ -57,7 +57,7 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
 - [x] T3 — Frontend de auth: login, sesión, rutas protegidas, UI según rol, cambio de contraseña,
   página de usuarios; e2e actualizados.
 - [x] T4 — Reportes en el backend: cálculo determinista, PDF (WeasyPrint) y CSV.
-- [ ] T5 — Reportes en el frontend + e2e; PR.
+- [x] T5 — Reportes en el frontend + e2e (el PR lo abre el usuario).
 
 ## Criterios de aceptación
 - Sin sesión no se ve nada; un viewer no puede modificar; un brewer no gestiona usuarios.
@@ -194,5 +194,17 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
     ventana duplicadas; menores de nombres y tests.
   - Las alertas muestran cuándo se reconocieron, no quién (no se guarda el usuario).
 
+- T5 completada (Ruta: delegada (escritor único)). `reportUrl(batchId, format, base)` en `batches/api.ts`
+  (sobre `buildUrl`, `API_URL` por defecto) y enlaces `<a href download>` «Download PDF/CSV» en el detalle
+  de lotes `active` y `finished`, con aviso de reporte parcial si está activo; ocultos en `planned` y según
+  `canDownloadReports`, que ahora usa una lista explícita de roles. Son enlaces y no `fetch`: la cookie
+  `SameSite=Lax` viaja en la navegación (dev `localhost:5173` -> `:8000` es el mismo sitio; e2e es mismo
+  origen por `/api`) y `Content-Disposition: attachment` fuerza la descarga aunque `download` se ignore entre
+  orígenes. Sin enlace en la lista de lotes (desorden: tabla y tarjetas). Evidencia TDD: RED = `TypeError:
+  reportUrl is not a function` (3) y 4 fallos de página (`Unable to find role="link" and name "Download PDF"`);
+  GREEN: frontend 382 passed (base 374); lint, typecheck y build OK; backend 981; e2e 24 passed + 1 omitido.
+  El e2e va dentro de `batches-alerts.spec.ts`: en un archivo propio corría en paralelo con ese y se pisaban
+  en `tank-1`. Sin e2e de viewer descargando (cubierto por unitarios). README y spec `dashboard-frontend`.
+
 ## Próximo paso
-T5: reportes en el frontend (descarga PDF/CSV desde el detalle del lote) + e2e; PR.
+Abrir el PR a `main` (T5 terminada).

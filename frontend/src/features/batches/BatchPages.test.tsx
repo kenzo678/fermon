@@ -503,3 +503,53 @@ describe("as a viewer", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
   });
 });
+
+describe("report downloads", () => {
+  function mockBatchOf(overrides: Partial<Batch>) {
+    mockCatalog();
+    server.use(http.get(`${API_URL}/batches/b1`, () => HttpResponse.json(makeBatch(overrides))));
+  }
+  const active = { status: "active", started_at: "2026-03-01T10:05:00Z" } as const;
+  const finished = { ...active, status: "finished", finished_at: "2026-03-05T10:00:00Z" } as const;
+
+  it.each([
+    ["active", active],
+    ["finished", finished],
+  ] as const)("offers the PDF and CSV of a %s batch", async (_status, overrides) => {
+    mockBatchOf(overrides);
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    expect(await screen.findByRole("link", { name: "Download PDF" })).toHaveAttribute(
+      "href",
+      `${API_URL}/batches/b1/report.pdf`,
+    );
+    expect(screen.getByRole("link", { name: "Download CSV" })).toHaveAttribute(
+      "href",
+      `${API_URL}/batches/b1/report.csv`,
+    );
+  });
+
+  it("offers nothing for a planned batch", async () => {
+    mockBatchOf({});
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    await screen.findByLabelText("Beer name");
+    expect(screen.queryByRole("link", { name: "Download PDF" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Download CSV" })).not.toBeInTheDocument();
+  });
+
+  it("says the report of an active batch is partial, and a finished one is not", async () => {
+    mockBatchOf(active);
+    const { unmount } = renderWithProviders(<Pages />, { route: "/batches/b1" });
+    expect(await screen.findByText(/partial/i)).toBeInTheDocument();
+    unmount();
+    mockBatchOf(finished);
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    await screen.findByRole("link", { name: "Download PDF" });
+    expect(screen.queryByText(/partial/i)).not.toBeInTheDocument();
+  });
+
+  it("lets a viewer download", async () => {
+    mockBatchOf(finished);
+    renderWithProviders(<Pages />, { route: "/batches/b1", user: makeUser({ role: "viewer" }) });
+    expect(await screen.findByRole("link", { name: "Download PDF" })).toBeInTheDocument();
+  });
+});

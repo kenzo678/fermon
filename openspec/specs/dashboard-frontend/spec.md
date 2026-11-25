@@ -292,6 +292,33 @@ section (`/users`: list, create with temporary password, change role, activate/d
 - WHEN any request answers 401 or the live socket closes with 4401
 - THEN the session is re-checked and, if it is gone, the user is sent to `/login`
 
+### Requirement: Report downloads
+The batch detail page SHALL offer "Download PDF" and "Download CSV" for `active` and `finished` batches to
+every role that may download reports (admin, brewer and viewer). They MUST be plain links to
+`GET /batches/{id}/report.pdf|csv` on the API base URL, so the browser sends the session cookie and saves the
+file without loading it into the page. A `planned` batch MUST NOT offer them. An `active` batch SHALL state
+that the report is partial.
+
+#### Scenario: Finished batch
+- GIVEN a signed-in user viewing a `finished` batch
+- WHEN they open its detail page
+- THEN both download links are shown, without a partial notice, and following one downloads the file
+
+#### Scenario: Active batch
+- GIVEN a signed-in user viewing an `active` batch
+- WHEN they open its detail page
+- THEN both links are shown with a notice that the report is partial
+
+#### Scenario: Planned batch
+- GIVEN a `planned` batch
+- WHEN its detail page is open
+- THEN no download link is shown
+
+#### Scenario: Viewer
+- GIVEN a signed-in `viewer`
+- WHEN they open an `active` or `finished` batch
+- THEN they can download its reports
+
 ## Known limitations / future work
 
 - Batch and alert UI do not exist yet: batch form (templates, start/finish), active batch on cards and

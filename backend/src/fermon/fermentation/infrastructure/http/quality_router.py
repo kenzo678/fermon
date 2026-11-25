@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from fermon.fermentation.application.quality import QualityEvaluation, SaveQualitySpecCommand
@@ -26,8 +26,12 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     SaveQualitySpecDep,
 )
 from fermon.fermentation.infrastructure.http.schemas import ErrorResponse
+from fermon.identity.domain import can_write_quality_profiles
+from fermon.identity.infrastructure.http.dependencies import require_permission
 
 router = APIRouter()
+
+WRITE_PROFILES = [Depends(require_permission(can_write_quality_profiles))]
 
 NOT_FOUND: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse},
@@ -172,6 +176,7 @@ async def list_quality_profile_templates() -> list[QualityTemplateOut]:
 
 @router.post(
     "/quality-profiles",
+    dependencies=WRITE_PROFILES,
     status_code=status.HTTP_201_CREATED,
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
@@ -200,7 +205,11 @@ async def get_quality_profile(
     return QualityProfileOut.from_domain(await use_case.execute(profile_id))
 
 
-@router.put("/quality-profiles/{profile_id}/specs/{stage}/{parameter}", responses=NOT_FOUND)
+@router.put(
+    "/quality-profiles/{profile_id}/specs/{stage}/{parameter}",
+    dependencies=WRITE_PROFILES,
+    responses=NOT_FOUND,
+)
 async def save_quality_spec(
     profile_id: UUID,
     stage: QualityStage,
@@ -225,6 +234,7 @@ async def save_quality_spec(
 
 @router.delete(
     "/quality-profiles/{profile_id}/specs/{stage}/{parameter}",
+    dependencies=WRITE_PROFILES,
     status_code=status.HTTP_204_NO_CONTENT,
     responses=NOT_FOUND,
 )

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from fermon.fermentation.application.lab_analyses import RecordLabAnalysisCommand
@@ -15,8 +15,12 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     RecordLabAnalysisDep,
 )
 from fermon.fermentation.infrastructure.http.schemas import ErrorResponse
+from fermon.identity.domain import can_record_lab_analyses
+from fermon.identity.infrastructure.http.dependencies import require_permission
 
 router = APIRouter()
+
+RECORD_ANALYSES = [Depends(require_permission(can_record_lab_analyses))]
 
 ERRORS: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse},
@@ -79,7 +83,10 @@ class LabAnalysisOut(BaseModel):
 
 
 @router.post(
-    "/batches/{batch_id}/lab-analyses", status_code=status.HTTP_201_CREATED, responses=ERRORS
+    "/batches/{batch_id}/lab-analyses",
+    dependencies=RECORD_ANALYSES,
+    status_code=status.HTTP_201_CREATED,
+    responses=ERRORS,
 )
 async def record_lab_analysis(
     batch_id: UUID, body: LabAnalysisIn, use_case: RecordLabAnalysisDep

@@ -24,5 +24,13 @@ def can_acknowledge_alerts(role: Role) -> bool:
     return role in _BREWING
 
 
+def can_write_quality_profiles(role: Role) -> bool:
+    return role in _BREWING
+
+
+def can_record_lab_analyses(role: Role) -> bool:
+    return role in _BREWING
+
+
 def can_download_reports(role: Role) -> bool:
     return True

@@ -94,8 +94,12 @@ one when it resolves. Messages sent by the client MUST be ignored.
 
 The server MUST accept the WebSocket handshake first and then close with an application code, so browsers can
 observe it:
-- `4403` - `Origin` header present and not in `CORS_ORIGINS` (a wildcard `*` allows all); reason
-  `origin not allowed`. Clients without an `Origin` header (scripts) MUST be accepted.
+- `4403` - `Origin` header present and not in `CORS_ORIGINS` (a wildcard is not allowed in the
+  settings); reason `origin not allowed`. Checked before the session. Clients without an `Origin` header
+  (scripts) MUST be accepted when their session is valid.
+- `4401` - no valid session: the `fermon_session` cookie is missing, unknown, expired or revoked, or the
+  account still has a temporary password; reason `authentication required`. Checked before any tank or
+  feed lookup.
 - `4404` - unknown or blank `tank_id` (readings socket only).
 - `1011` - internal error: the tank lookup failed (readings socket), or the alert feed subscription failed
   (alerts socket); reason `internal error`.
@@ -104,6 +108,11 @@ observe it:
 - GIVEN no tank `tank-nope`
 - WHEN a client connects to `/ws/tanks/tank-nope`
 - THEN the server accepts and closes with code `4404`
+
+#### Scenario: No session
+- GIVEN a client without a valid `fermon_session` cookie
+- WHEN it connects to either socket (even for an unknown tank)
+- THEN the server accepts and closes with code `4401` and reason `authentication required`
 
 #### Scenario: Foreign origin
 - GIVEN an `Origin` not in `CORS_ORIGINS`
@@ -140,5 +149,5 @@ subscriber MUST be discarded; a slow subscriber MUST NOT block other subscribers
 ## Known limitations / future work
 
 - Notifications emitted while the listener is disconnected are lost (clients backfill via REST).
-- Authentication is not implemented; the Origin check protects against other web pages, it is not
-  authentication.
+- The Origin check protects against other web pages that would reuse the browser's cookie
+  (cross-site WebSocket hijacking); authentication is the session cookie. Any role may listen.

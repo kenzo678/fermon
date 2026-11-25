@@ -143,3 +143,33 @@ def test_login_throttle_defaults_and_environment(monkeypatch: pytest.MonkeyPatch
 def test_login_throttle_settings_must_be_positive(name: str) -> None:
     with pytest.raises(ValidationError, match=name):
         Settings(**{name: 0})
+
+
+def test_device_api_keys_default_to_none_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEVICE_API_KEYS", raising=False)
+    assert Settings().device_api_keys == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("", []),
+        ("key-a", ["key-a"]),
+        (" key-a, key-b ,", ["key-a", "key-b"]),
+    ],
+    ids=["empty", "single", "comma-separated"],
+)
+def test_device_api_keys_env_var_is_a_comma_separated_list(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+) -> None:
+    monkeypatch.setenv("DEVICE_API_KEYS", raw)
+    assert Settings().device_api_keys == expected
+
+
+@pytest.mark.parametrize("raw", ["*", "https://a.example,*", '["*"]'])
+def test_a_wildcard_cors_origin_is_rejected_because_cookies_are_sent(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", raw)
+    with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+        Settings()

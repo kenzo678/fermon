@@ -17,10 +17,13 @@ async def client() -> AsyncIterator[AsyncClient]:
         yield client
 
 
-async def preflight(client: AsyncClient, origin: str, method: str = "GET") -> dict[str, str]:
-    response = await client.options(
-        "/health", headers={"Origin": origin, "Access-Control-Request-Method": method}
-    )
+async def preflight(
+    client: AsyncClient, origin: str, method: str = "GET", request_headers: str | None = None
+) -> dict[str, str]:
+    headers = {"Origin": origin, "Access-Control-Request-Method": method}
+    if request_headers:
+        headers["Access-Control-Request-Headers"] = request_headers
+    response = await client.options("/health", headers=headers)
     return {"status": str(response.status_code), **dict(response.headers)}
 
 
@@ -30,7 +33,7 @@ async def test_preflight_from_an_allowed_origin_is_accepted(client: AsyncClient)
     assert result["status"] == "200"
     assert result["access-control-allow-origin"] == ALLOWED
     assert "GET" in result["access-control-allow-methods"]
-    assert "access-control-allow-credentials" not in result
+    assert result["access-control-allow-credentials"] == "true"
 
 
 async def test_preflight_from_a_disallowed_origin_is_rejected(client: AsyncClient) -> None:
@@ -63,3 +66,35 @@ async def test_preflight_allows_patch_so_browsers_can_edit_batches(client: Async
 
     assert result["status"] == "200"
     assert "PATCH" in result["access-control-allow-methods"]
+
+
+async def test_cookies_are_allowed_on_simple_requests_from_an_allowed_origin(
+    client: AsyncClient,
+) -> None:
+    response = await client.get("/health", headers={"Origin": ALLOWED})
+
+    assert response.headers["access-control-allow-credentials"] == "true"
+    assert response.headers["access-control-allow-origin"] == ALLOWED  # never "*" with cookies
+
+
+async def test_preflight_allows_the_csrf_and_device_key_headers(client: AsyncClient) -> None:
+    result = await preflight(
+        client, ALLOWED, "POST", "content-type, x-requested-with, x-device-key"
+    )
+
+    assert result["status"] == "200"
+    allowed = result["access-control-allow-headers"].lower()
+    for header in ("content-type", "x-requested-with", "x-device-key"):
+        assert header in allowed
+
+
+async def test_preflight_rejects_other_request_headers(client: AsyncClient) -> None:
+    result = await preflight(client, ALLOWED, "POST", "authorization")
+
+    assert result["status"] == "400"
+
+
+async def test_preflight_does_not_offer_unlisted_methods(client: AsyncClient) -> None:
+    result = await preflight(client, ALLOWED, "TRACE")
+
+    assert result["status"] == "400"

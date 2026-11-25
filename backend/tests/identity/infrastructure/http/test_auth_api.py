@@ -20,6 +20,7 @@ from fermon.identity.infrastructure.http.dependencies import (
 )
 from fermon.main import create_app
 from fermon.shared.config import Settings
+from tests.auth_helpers import CSRF_HEADERS
 from tests.identity.fakes import (
     FakePasswordHasher,
     InMemoryCredentialStore,
@@ -73,7 +74,9 @@ async def world() -> World:
 
 @pytest_asyncio.fixture
 async def client(world: World) -> AsyncIterator[AsyncClient]:
-    async with AsyncClient(transport=ASGITransport(app=world.app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=world.app), base_url="http://test", headers=CSRF_HEADERS
+    ) as c:
         yield c
 
 
@@ -125,7 +128,9 @@ async def test_cookie_is_marked_secure_when_configured(world: World) -> None:
     world.app = create_app(Settings(session_cookie_secure=True, session_ttl_seconds=60))
     world.install(world.app)
     user = await world.add(1, Role.VIEWER)
-    async with AsyncClient(transport=ASGITransport(app=world.app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=world.app), base_url="http://test", headers=CSRF_HEADERS
+    ) as c:
         response = await c.post("/auth/login", json={"email": user.email, "password": PASSWORD})
     cookie = response.headers["set-cookie"].lower()
     assert "; secure" in cookie and "max-age=60" in cookie

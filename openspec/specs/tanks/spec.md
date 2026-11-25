@@ -111,4 +111,6 @@ is unavailable.
 ## Known limitations / future work
 
 - `display_name` has no write path yet; it is always `null` unless set directly in the database.
-- No authentication or user model exists (out of scope so far).
+- Every REST route (including `GET /tanks`) requires a login session; writes need the `brewer` or `admin`
+  role (see the README, "Autorización"). Only `/health`, `/auth/login`, `/auth/logout` (idempotent), the OpenAPI docs and the device-keyed `POST /readings`
+  are reachable without a session.

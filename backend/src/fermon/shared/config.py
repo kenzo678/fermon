@@ -42,15 +42,28 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
-    @field_validator("cors_origins", mode="before")
+    # Keys accepted in the ``X-Device-Key`` header of ``POST /readings`` (comma-separated).
+    # Empty by default: HTTP ingestion is then disabled (MQTT is unaffected).
+    device_api_keys: Annotated[list[str], NoDecode] = []
+
+    @field_validator("cors_origins", "device_api_keys", mode="before")
     @classmethod
-    def _parse_cors_origins(cls, value: object) -> object:
+    def _parse_comma_separated_list(cls, value: object) -> object:
         if isinstance(value, str):
             text = value.strip()
             if text.startswith("["):
                 return json.loads(text)
-            return [origin.strip() for origin in text.split(",") if origin.strip()]
+            return [item.strip() for item in text.split(",") if item.strip()]
         return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _reject_wildcard_origin(cls, origins: list[str]) -> list[str]:
+        # The API answers with credentials (the session cookie), which browsers refuse to
+        # combine with a wildcard origin: list the exact origins instead.
+        if "*" in origins:
+            raise ValueError("CORS_ORIGINS must list explicit origins; '*' is not allowed")
+        return origins
 
     @model_validator(mode="before")
     @classmethod

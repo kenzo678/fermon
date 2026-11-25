@@ -41,6 +41,22 @@ class PermissionDeniedError(IdentityError):
         super().__init__(message)
 
 
+class MissingCsrfHeaderError(PermissionDeniedError):
+    """A state-changing request lacks the ``X-Requested-With: fermon`` header (CSRF defence)."""
+
+    def __init__(self) -> None:
+        super().__init__("missing or invalid X-Requested-With header (expected 'fermon')")
+        self.field = "X-Requested-With"
+
+
+class InvalidDeviceKeyError(IdentityError):
+    """The ``X-Device-Key`` header is missing or unknown, or no device key is configured."""
+
+    def __init__(self, message: str = "a valid X-Device-Key header is required") -> None:
+        super().__init__(message)
+        self.field = "X-Device-Key"
+
+
 class TooManyLoginAttemptsError(IdentityError):
     """Too many recent failed logins for the account or the client address."""
 

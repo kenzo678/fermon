@@ -34,6 +34,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000,http://frontend-e2e:5173}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      # Keys accepted by POST /readings (X-Device-Key header), comma-separated. Empty: HTTP ingestion off.
+      DEVICE_API_KEYS: ${DEVICE_API_KEYS:-}
     ports:
       - "8000:8000"
     healthcheck:

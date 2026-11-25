@@ -5,14 +5,17 @@ from fermon.identity.domain import (
     can_acknowledge_alerts,
     can_download_reports,
     can_manage_users,
+    can_record_lab_analyses,
     can_write_batches,
+    can_write_quality_profiles,
 )
 
-# role -> (manage users, write batches, acknowledge alerts, download reports)
+# role -> (manage users, write batches, acknowledge alerts, download reports,
+#          write quality profiles, record lab analyses)
 PERMISSIONS = {
-    Role.ADMIN: (True, True, True, True),
-    Role.BREWER: (False, True, True, True),
-    Role.VIEWER: (False, False, False, True),
+    Role.ADMIN: (True, True, True, True, True, True),
+    Role.BREWER: (False, True, True, True, True, True),
+    Role.VIEWER: (False, False, False, True, False, False),
 }
 
 
@@ -23,6 +26,8 @@ def test_permission_table(role: Role) -> None:
         can_write_batches(role),
         can_acknowledge_alerts(role),
         can_download_reports(role),
+        can_write_quality_profiles(role),
+        can_record_lab_analyses(role),
     )
     assert granted == PERMISSIONS[role]
 

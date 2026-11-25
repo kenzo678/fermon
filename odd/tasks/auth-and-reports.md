@@ -49,7 +49,7 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
 ## Tareas
 - [x] T1 — Backend de usuarios y sesiones: dominio `User`/roles, migración, Argon2, sesiones,
   `/auth/login|logout|me|password`, `/users` (admin), comando `create-admin`.
-- [ ] T2 — Autorización en el backend: sesión obligatoria en API y WebSockets, roles en escrituras,
+- [x] T2 — Autorización en el backend: sesión obligatoria en API y WebSockets, roles en escrituras,
   API key de dispositivo para `POST /readings`, CSRF, CORS con credenciales.
   Incluye lo que entró a main después de empezar (PRs #10–#14): perfiles de calidad
   (`/quality-profiles`, `PUT|DELETE .../specs`, `evaluate`) y análisis (`POST /batches/{id}/lab-analyses`)
@@ -112,5 +112,23 @@ de una fermentación. Para un MVP real hace falta controlar quién hace qué y p
     corre en el camino del login.
   - Menores: normalización de email y defaults del limitador duplicados; un fake de revocación engañoso.
 
+- T2 completada (ruta: delegada (escritor único)). Sesión obligatoria por dependencias de router en
+  `main.py` (`require_csrf_header` + `get_current_user`); la ingesta salió a `ingestion_router.py` con
+  `require_device_key` (`X-Device-Key` vs `DEVICE_API_KEYS`, `hmac.compare_digest`, sin claves -> 401 y
+  WARNING al arrancar). Escrituras de lotes, alertas, perfiles/specs de calidad y análisis con
+  `require_permission` (helpers nuevos `can_write_quality_profiles`, `can_record_lab_analyses`);
+  `evaluate` y los GET, cualquier rol. WebSockets: `get_websocket_user` y cierre `4401` (el origen, `4403`,
+  se evalúa antes). CSRF: `X-Requested-With: fermon` en todo método inseguro salvo `POST /readings`
+  (403, field `X-Requested-With`). CORS con credenciales; `*` rechazado en `Settings`. Prueba que recorre
+  las rutas (FastAPI nuevo: hay que usar `iter_route_contexts`, `app.routes` trae routers incluidos
+  perezosos) y falla si una ruta queda sin sesión/CSRF/clave. Tests: helper `tests/auth_helpers.py`
+  (override del `get_current_user_allow_password_change` por cabecera `X-Test-Role`; no se desactiva la
+  auth). Nada en el repo usa `POST /readings` por HTTP (simulador e ingestor van por MQTT). README,
+  specs `realtime`, `reading-ingestion` y `tanks` actualizados. TDD: RED = ImportError
+  (`can_record_lab_analyses`, `get_websocket_user`) y 120 fallos de la suite previa por 401/403 antes de
+  adaptar los tests; las pruebas de WebSocket y de rol por router se añadieron tras la implementación
+  (sin RED propio). GREEN: backend 911 passed (base 813); ruff, format y mypy OK. El frontend y sus e2e
+  quedan rotos hasta T3 (esperado).
+
 ## Próximo paso
-T2: autorización en el backend (incluye proteger perfiles de calidad y análisis de laboratorio).
+T3: frontend de auth (login, sesión, rutas protegidas, UI según rol, cambio de contraseña, página de usuarios; e2e).

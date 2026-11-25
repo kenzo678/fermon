@@ -35,6 +35,24 @@ body) MUST be accepted by `POST /readings`.
   `value` (including a string), a non-finite value, or a `recorded_at` without timezone
 - THEN the message is dropped with a WARNING log and the next message is processed
 
+### Requirement: HTTP ingestion authenticates devices with an API key
+
+`POST /readings` MUST NOT use a user session. It MUST require the `X-Device-Key` header, compared in constant
+time against the keys in the `DEVICE_API_KEYS` setting (comma-separated). A missing or unknown key, or no
+configured keys at all (the default, which also logs a startup WARNING), MUST answer `401` with field
+`X-Device-Key` and store nothing. The route is exempt from the `X-Requested-With` CSRF header. MQTT
+ingestion is unaffected.
+
+#### Scenario: Valid device key
+- GIVEN `DEVICE_API_KEYS=key-1`
+- WHEN a device posts a valid reading with `X-Device-Key: key-1`
+- THEN the reading is stored
+
+#### Scenario: Missing, wrong or unconfigured key
+- GIVEN `DEVICE_API_KEYS` is empty, or the header is absent or does not match
+- WHEN a device posts a valid reading
+- THEN the response is `401` and nothing is stored
+
 ### Requirement: Domain validation
 
 A reading MUST satisfy the domain rules regardless of the entry point:

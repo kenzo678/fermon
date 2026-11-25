@@ -1,11 +1,10 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import AwareDatetime
 
 from fermon.fermentation.application.batches import CreateBatchCommand
-from fermon.fermentation.application.ingest_reading import IngestReadingCommand
 from fermon.fermentation.application.manage_alerts import DEFAULT_LIMIT, MAX_LIMIT
 from fermon.fermentation.domain import (
     AggregationBucket,
@@ -24,7 +23,6 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     GetAlertDep,
     GetBatchDep,
     GetTankDep,
-    IngestReadingDep,
     ListAggregatedReadingsDep,
     ListAlertsDep,
     ListBatchesDep,
@@ -42,35 +40,16 @@ from fermon.fermentation.infrastructure.http.schemas import (
     BatchPatch,
     BatchTemplateOut,
     ErrorResponse,
-    ReadingIn,
     ReadingOut,
     TankOut,
 )
+from fermon.identity.domain import can_acknowledge_alerts, can_write_batches
+from fermon.identity.infrastructure.http.dependencies import require_permission
 
 router = APIRouter()
 
-
-@router.post(
-    "/readings",
-    status_code=status.HTTP_201_CREATED,
-    responses={
-        200: {"model": ReadingOut, "description": "Already ingested: the first stored reading"},
-        422: {"model": ErrorResponse},
-    },
-)
-async def ingest_reading(
-    body: ReadingIn, response: Response, use_case: IngestReadingDep
-) -> ReadingOut:
-    """Ingest one sensor reading.
-
-    Responds 201 with the created reading. Idempotent: re-sending a reading with the same
-    tank, sensor, measurement and `recorded_at` responds 200 with the STORED (first)
-    reading, whatever value the repeated request carried.
-    """
-    result = await use_case.execute(IngestReadingCommand(**body.model_dump()))
-    if not result.created:
-        response.status_code = status.HTTP_200_OK
-    return ReadingOut.from_domain(result.reading)
+WRITE_BATCHES = [Depends(require_permission(can_write_batches))]
+ACKNOWLEDGE_ALERTS = [Depends(require_permission(can_acknowledge_alerts))]
 
 
 @router.get("/tanks")
@@ -141,6 +120,7 @@ async def list_batch_templates() -> list[BatchTemplateOut]:
 
 @router.post(
     "/batches",
+    dependencies=WRITE_BATCHES,
     status_code=status.HTTP_201_CREATED,
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
@@ -186,6 +166,7 @@ async def get_batch(batch_id: UUID, use_case: GetBatchDep) -> BatchOut:
 
 @router.patch(
     "/batches/{batch_id}",
+    dependencies=WRITE_BATCHES,
     responses={
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
@@ -204,6 +185,7 @@ async def update_batch(batch_id: UUID, body: BatchPatch, use_case: UpdateBatchDe
 
 @router.post(
     "/batches/{batch_id}/start",
+    dependencies=WRITE_BATCHES,
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
 )
 async def start_batch(batch_id: UUID, use_case: StartBatchDep) -> BatchOut:
@@ -213,6 +195,7 @@ async def start_batch(batch_id: UUID, use_case: StartBatchDep) -> BatchOut:
 
 @router.post(
     "/batches/{batch_id}/finish",
+    dependencies=WRITE_BATCHES,
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
 )
 async def finish_batch(batch_id: UUID, use_case: FinishBatchDep) -> BatchOut:
@@ -249,6 +232,7 @@ async def get_alert(alert_id: UUID, use_case: GetAlertDep) -> AlertOut:
 
 @router.post(
     "/alerts/{alert_id}/acknowledge",
+    dependencies=ACKNOWLEDGE_ALERTS,
     responses={
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},

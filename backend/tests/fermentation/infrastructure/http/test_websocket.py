@@ -3,6 +3,7 @@ import logging
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from uuid import UUID
 
@@ -23,14 +24,19 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_get_tank,
     get_reading_feed,
 )
+from fermon.identity.application import CurrentUser
+from fermon.identity.domain import Role, Session, hash_token
+from fermon.identity.infrastructure.http.dependencies import get_current_user_use_case
 from fermon.main import create_app
 from fermon.shared.config import Settings
+from tests.auth_helpers import sign_in_fake_sessions, user_with
 from tests.fermentation.fakes import (
     InMemoryAlertRepository,
     InMemoryBatchRepository,
     InMemoryReadingRepository,
     InMemoryTankRepository,
 )
+from tests.identity.fakes import InMemorySessionStore, InMemoryUserRepository
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 ALLOWED = "http://localhost:5173"
@@ -120,7 +126,7 @@ def client(feed: FakeFeed, alert_feed: FakeAlertFeed) -> TestClient:
     )
     app.dependency_overrides[get_reading_feed] = lambda: feed
     app.dependency_overrides[get_alert_feed] = lambda: alert_feed
-    return TestClient(app)
+    return TestClient(sign_in_fake_sessions(app))
 
 
 def test_unknown_tank_is_closed_with_4404_and_a_reason(client: TestClient, feed: FakeFeed) -> None:
@@ -308,3 +314,125 @@ def test_alert_stream_subscription_failure_closes_with_1011_and_logs(
     assert "exploded" not in message["reason"]
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert errors and errors[0].exc_info is not None
+
+
+# --- Authentication: the handshake needs the session cookie (real session chain, in memory) ---
+
+TOKEN = "session-token-1"
+COOKIE = {"cookie": f"fermon_session={TOKEN}"}
+
+
+def session_client(
+    feed: FakeFeed,
+    alert_feed: FakeAlertFeed,
+    *,
+    must_change_password: bool = False,
+    revoked: bool = False,
+    expired: bool = False,
+    inactive: bool = False,
+) -> TestClient:
+    users, sessions = InMemoryUserRepository(), InMemorySessionStore()
+    user = replace(
+        user_with(Role.VIEWER, must_change_password=must_change_password), active=not inactive
+    )
+    users.users[user.id] = user
+    sessions.sessions[hash_token(TOKEN)] = Session(
+        token_hash=hash_token(TOKEN),
+        user_id=user.id,
+        created_at=T0 - timedelta(hours=1),
+        expires_at=T0 - timedelta(minutes=1) if expired else T0 + timedelta(hours=8),
+        revoked_at=T0 if revoked else None,
+    )
+    tanks = InMemoryTankRepository()
+    tanks.tanks["tank-1"] = Tank(id="tank-1", display_name=None, first_seen_at=T0)
+    app = create_app(Settings(cors_origins=[ALLOWED]))
+    app.dependency_overrides[get_current_user_use_case] = lambda: CurrentUser(
+        users, sessions, lambda: T0
+    )
+    app.dependency_overrides[get_get_tank] = lambda: GetTank(
+        tanks, InMemoryReadingRepository(), InMemoryBatchRepository(), InMemoryAlertRepository()
+    )
+    app.dependency_overrides[get_reading_feed] = lambda: feed
+    app.dependency_overrides[get_alert_feed] = lambda: alert_feed
+    return TestClient(app)
+
+
+@pytest.mark.parametrize("path", ["/ws/tanks/tank-1", "/ws/alerts", "/ws/tanks/unknown-tank"])
+def test_a_handshake_without_a_session_cookie_is_closed_with_4401(
+    path: str, feed: FakeFeed, alert_feed: FakeAlertFeed
+) -> None:
+    client = session_client(feed, alert_feed)
+
+    with client.websocket_connect(path) as ws:
+        message = ws.receive()
+
+    assert message["type"] == "websocket.close"
+    assert message["code"] == 4401
+    assert message["reason"] == "authentication required"
+    assert feed.subscribed == [] and alert_feed.active == 0  # the 4401 comes before any lookup
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{"must_change_password": True}, {"revoked": True}, {"expired": True}, {"inactive": True}],
+    ids=["temporary-password", "revoked", "expired", "deactivated-user"],
+)
+@pytest.mark.parametrize("path", ["/ws/tanks/tank-1", "/ws/alerts"])
+def test_an_unusable_session_is_closed_with_4401(
+    path: str, state: dict[str, bool], feed: FakeFeed, alert_feed: FakeAlertFeed
+) -> None:
+    client = session_client(feed, alert_feed, **state)
+
+    with client.websocket_connect(path, headers=COOKIE) as ws:
+        assert ws.receive()["code"] == 4401
+
+
+def test_a_garbage_session_cookie_is_closed_with_4401(
+    feed: FakeFeed, alert_feed: FakeAlertFeed
+) -> None:
+    client = session_client(feed, alert_feed)
+
+    with client.websocket_connect("/ws/alerts", headers={"cookie": "fermon_session=nope"}) as ws:
+        assert ws.receive()["code"] == 4401
+
+
+def test_any_role_with_a_valid_session_can_stream_readings_and_alerts(
+    feed: FakeFeed, alert_feed: FakeAlertFeed
+) -> None:
+    client = session_client(feed, alert_feed)  # a viewer: streams are read-only
+    feed.pending = [reading("tank-1", 18.5)]
+    alert_feed.pending = [alert(1)]
+
+    with client.websocket_connect("/ws/tanks/tank-1", headers=COOKIE) as ws:
+        assert ws.receive_json()["value"] == 18.5
+    with client.websocket_connect("/ws/alerts", headers=COOKIE) as ws:
+        assert ws.receive_json()["type"] == "alert"
+
+
+def test_a_valid_session_does_not_bypass_the_origin_check(
+    feed: FakeFeed, alert_feed: FakeAlertFeed
+) -> None:
+    client = session_client(feed, alert_feed)
+
+    for path in ("/ws/tanks/tank-1", "/ws/alerts"):
+        with client.websocket_connect(path, headers={**COOKIE, "origin": DISALLOWED}) as ws:
+            assert ws.receive()["code"] == 4403
+
+
+def test_the_origin_check_comes_before_the_session_check(
+    feed: FakeFeed, alert_feed: FakeAlertFeed
+) -> None:
+    client = session_client(feed, alert_feed)
+
+    with client.websocket_connect("/ws/alerts", headers={"origin": DISALLOWED}) as ws:
+        assert ws.receive()["code"] == 4403
+
+
+def test_a_browser_origin_in_the_allow_list_with_a_session_is_accepted(
+    feed: FakeFeed, alert_feed: FakeAlertFeed
+) -> None:
+    client = session_client(feed, alert_feed)
+    alert_feed.pending = [alert(1)]
+
+    with client.websocket_connect("/ws/alerts", headers={**COOKIE, "origin": ALLOWED}) as ws:
+        assert ws.receive_json()["type"] == "alert"

@@ -130,7 +130,7 @@ docker compose up -d                                       # api + ingestor + ba
 docker compose run --rm api uv run alembic upgrade head    # migraciones (la primera vez)
 docker compose --profile simulator up -d simulator         # empezar a publicar lecturas
 docker compose logs -f ingestor                            # ver el consumo
-curl "localhost:8000/tanks/tank-1/readings?start=2026-01-01T00:00:00Z&end=2027-01-01T00:00:00Z"
+curl -b cookies.txt "localhost:8000/tanks/tank-1/readings?start=2026-01-01T00:00:00Z&end=2027-01-01T00:00:00Z"   # requiere sesión: ver "Autorización"
 ```
 
 `start` y `end` son instantes ISO-8601 con zona horaria; el rango es `[start, end)`. Aplicar las
@@ -151,8 +151,8 @@ ingesta registra el tanque antes de guardar la lectura.
 | `GET /tanks/{tank_id}/readings?start=&end=` | Lecturas crudas del rango `[start, end)` |
 
 ```sh
-curl localhost:8000/tanks
-curl localhost:8000/tanks/tank-1
+curl -b cookies.txt localhost:8000/tanks
+curl -b cookies.txt localhost:8000/tanks/tank-1
 ```
 
 ```json
@@ -180,8 +180,10 @@ unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido
 ### CORS
 
 `CORS_ORIGINS` define los orígenes del navegador autorizados a llamar a la API (solo `GET`, `POST`,
-`PATCH`, `PUT` y `DELETE`, sin credenciales). Acepta una lista separada por comas o un arreglo JSON; por defecto
-`http://localhost:5173,http://localhost:3000`:
+`PATCH`, `PUT` y `DELETE`, **con credenciales**: el navegador envía la cookie de sesión). Los encabezados
+permitidos son `Content-Type`, `X-Requested-With` y `X-Device-Key`. Acepta una lista separada por comas o un
+arreglo JSON; por defecto `http://localhost:5173,http://localhost:3000`. Debe listar orígenes explícitos:
+`*` se rechaza al arrancar, porque los navegadores no admiten `*` junto con credenciales:
 
 ```sh
 CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -d api
@@ -189,14 +191,14 @@ CORS_ORIGINS=https://panel.example.com,http://localhost:5173 docker compose up -
 
 ## Usuarios y sesiones
 
-La API tiene usuarios con roles y sesiones del lado del servidor. En esta etapa solo existen los
-endpoints de autenticación y de gestión de usuarios; los demás endpoints todavía no exigen sesión.
+La API tiene usuarios con roles y sesiones del lado del servidor. Todo exige iniciar sesión (ver
+[Autorización](#autorización)).
 
 | Rol | Permisos |
 | --- | --- |
 | `admin` | Todo, incluida la gestión de usuarios |
-| `brewer` | Crear, editar, iniciar y finalizar lotes; reconocer alertas; descargar reportes |
-| `viewer` | Solo lectura y descarga de reportes |
+| `brewer` | Crear, editar, iniciar y finalizar lotes; reconocer alertas; crear perfiles y especificaciones de calidad; registrar análisis de laboratorio; descargar reportes |
+| `viewer` | Solo lectura (tanques, lecturas, lotes, alertas, perfiles, análisis) y descarga de reportes |
 
 Las contraseñas se guardan con Argon2id y deben tener al menos 10 caracteres. No hay registro
 abierto: el primer administrador se crea por comando y los demás los crea un admin con una contraseña
@@ -244,6 +246,61 @@ al cambiar la contraseña se limpia la marca. El límite de intentos de login es
 vale para una sola instancia de la API; un login correcto reinicia el contador de la cuenta, no el de
 la IP. Detrás de un proxy la IP vista es la del proxy.
 
+## Autorización
+
+Todo exige una sesión válida, salvo `GET /health`, `POST /auth/login`, `POST /auth/logout` (idempotente) y la
+documentación de FastAPI (`/docs`, `/redoc`, `/openapi.json`). Sin sesión la respuesta es `401`, con la
+forma unificada `{"detail": [{"field", "message"}]}`; con un rol insuficiente, `403`. Una prueba recorre
+todas las rutas de la aplicación y falla si alguna nueva queda sin protección.
+
+| Acción | `viewer` | `brewer` | `admin` |
+| --- | :---: | :---: | :---: |
+| Leer tanques, lecturas, lotes, alertas, perfiles y análisis; `POST /quality-profiles/{id}/evaluate` | sí | sí | sí |
+| Crear/editar/iniciar/finalizar lotes (`/batches`) | no | sí | sí |
+| Reconocer alertas (`POST /alerts/{id}/acknowledge`) | no | sí | sí |
+| Crear perfiles de calidad y `PUT`/`DELETE` de especificaciones | no | sí | sí |
+| Registrar análisis de laboratorio | no | sí | sí |
+| Gestionar usuarios (`/users`) | no | no | sí |
+
+Las reglas viven en `fermon.identity.domain.role` (`can_write_batches`, …) y se aplican como dependencias
+de las rutas; los `GET` solo piden una sesión.
+
+**Iniciar sesión con curl.** La cookie `fermon_session` se guarda con `-c` y se envía con `-b`:
+
+```sh
+curl -c cookies.txt -X POST localhost:8000/auth/login \
+  -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
+  -d '{"email": "admin@example.com", "password": "..."}'
+curl -b cookies.txt localhost:8000/tanks
+curl -b cookies.txt -X POST localhost:8000/batches/<id>/start -H 'X-Requested-With: fermon'
+```
+
+**CSRF.** Las peticiones que modifican (`POST`, `PUT`, `PATCH`, `DELETE`), incluidas `/auth/login`,
+`/auth/logout` y `/auth/password`, deben llevar el encabezado `X-Requested-With: fermon` (valor exacto);
+sin él la respuesta es `403` con `field: "X-Requested-With"`. Un formulario o una imagen de otro sitio no
+puede añadir ese encabezado, y un `fetch` entre sitios que lo añade exige un preflight de CORS que solo
+pasan los orígenes de `CORS_ORIGINS`. Se suma a la cookie `SameSite=Lax`. Solo `POST /readings` queda
+exento (no usa cookie).
+
+**Ingesta HTTP de dispositivos.** `POST /readings` no usa sesión de usuario: exige el encabezado
+`X-Device-Key` con una de las claves de `DEVICE_API_KEYS` (lista separada por comas; se compara en tiempo
+constante). Sin clave o con una clave incorrecta responde `401` (`field: "X-Device-Key"`). Por defecto
+`DEVICE_API_KEYS` está vacía: la ingesta HTTP queda desactivada (siempre `401`) y el arranque avisa con un
+WARNING. La ingesta por MQTT no cambia. Compose pasa la variable al servicio `api`:
+
+```sh
+DEVICE_API_KEYS=clave-del-sensor-1,clave-del-sensor-2 docker compose up -d api
+curl -X POST localhost:8000/readings -H 'X-Device-Key: clave-del-sensor-1' -H 'Content-Type: application/json' \
+  -d '{"tank_id": "tank-1", "sensor_id": "probe-a", "measurement": "temperature", "value": 18.5, "unit": "celsius", "recorded_at": "2026-01-01T10:00:00Z"}'
+```
+
+**WebSockets.** `/ws/tanks/{tank_id}` y `/ws/alerts` exigen la cookie de sesión en el apretón de manos (los
+navegadores la envían solos). Sin sesión válida, o con contraseña temporal pendiente, se acepta y se cierra
+con el código `4401`; un `Origin` fuera de `CORS_ORIGINS` se cierra con `4403` (se evalúa antes que la
+sesión, porque los navegadores envían cookies también desde otros sitios). Un cliente sin `Origin` (script) se
+acepta si la sesión es válida. Cualquier rol puede escuchar. Los códigos de cierre están en
+[Tiempo real](#tiempo-real-websocket).
+
 ## Lotes
 
 Un lote es una cerveza en un tanque, con sus rangos objetivo. Ciclo de vida: `planned` → `active`
@@ -271,13 +328,13 @@ obligatorios `temperature_min`, `temperature_max` y `pressure_max`). Los límite
 (mín. < máx.) y estar dentro de los rangos físicos de cada medición; `expected_final_abv` es 0–20.
 
 ```sh
-curl -X POST localhost:8000/batches -H 'Content-Type: application/json' -d '{
+curl -X POST localhost:8000/batches -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{
   "tank_id": "tank-1", "beer_name": "Pale Ale", "style": "APA", "template": "ale",
   "targets": {"temperature_max": 22.0}, "expected_end": "2026-02-01T00:00:00Z"
 }'
-curl -X POST localhost:8000/batches/<id>/start
-curl -X PATCH localhost:8000/batches/<id> -H 'Content-Type: application/json' -d '{"notes": "dry hop"}'
-curl -X POST localhost:8000/batches/<id>/finish
+curl -X POST localhost:8000/batches/<id>/start -b cookies.txt -H 'X-Requested-With: fermon'
+curl -X PATCH localhost:8000/batches/<id> -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{"notes": "dry hop"}'
+curl -X POST localhost:8000/batches/<id>/finish -b cookies.txt -H 'X-Requested-With: fermon'
 ```
 
 `GET /tanks` y `GET /tanks/{id}` incluyen `active_batch` (`id`, `beer_name`, `style`, `targets`,
@@ -323,12 +380,12 @@ terminado). Son valores **ilustrativos** de manual para una lager rubia, pensado
 para editar con `PUT`; no son las especificaciones de ninguna cervecería.
 
 ```sh
-curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/quality-profiles -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
   -d '{"name": "House lager", "template": "pale_lager"}'
-curl -X POST localhost:8000/quality-profiles -H 'Content-Type: application/json' -d '{"name": "Pale lager"}'
-curl -X PUT localhost:8000/quality-profiles/<id>/specs/bright_beer/ph -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/quality-profiles -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{"name": "Pale lager"}'
+curl -X PUT localhost:8000/quality-profiles/<id>/specs/bright_beer/ph -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
   -d '{"acceptance": {"min": 4.15, "max": 4.65}, "internal": {"min": 4.25, "max": 4.55}}'
-curl -X POST localhost:8000/quality-profiles/<id>/evaluate -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/quality-profiles/<id>/evaluate -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
   -d '{"stage": "bright_beer", "values": {"ph": 4.6, "color": 6.1}}'
 # -> ph: "warning", color: "no_spec"
 ```
@@ -354,7 +411,7 @@ filtración y el envasado ocurren después de la fermentación. Migración `0008
 | `GET /lab-analyses/{id}` | Un análisis; `404` (`analysis_id`) |
 
 ```sh
-curl -X POST localhost:8000/batches/<id>/lab-analyses -H 'Content-Type: application/json' -d '{
+curl -X POST localhost:8000/batches/<id>/lab-analyses -b cookies.txt -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' -d '{
   "stage": "brewhouse", "analyst": "M. Ruiz",
   "values": {"original_extract": 11.4, "ph": 5.6, "wort_oxygen": 7.0}
 }'
@@ -446,8 +503,8 @@ aggregates* de TimescaleDB: `readings_1m` (cubos de 1 minuto, sobre `readings`) 
 (cubos de 1 hora, jerárquico sobre `readings_1m`, así nunca relee las lecturas crudas).
 
 ```sh
-curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1m&start=2026-01-01T12:00:00Z&end=2026-01-01T13:00:00Z'
-curl 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1h&measurement=temperature&measurement=pressure&start=...&end=...'
+curl -b cookies.txt 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1m&start=2026-01-01T12:00:00Z&end=2026-01-01T13:00:00Z'
+curl -b cookies.txt 'localhost:8000/tanks/tank-1/readings/aggregated?bucket=1h&measurement=temperature&measurement=pressure&start=...&end=...'
 ```
 
 ```json
@@ -493,7 +550,7 @@ docker compose exec timescaledb psql -U fermon -d fermon -c \
 
 ## Tiempo real (WebSocket)
 
-`ws://localhost:8000/ws/tanks/{tank_id}` envía cada lectura nueva del tanque como un mensaje de
+`ws://localhost:8000/ws/tanks/{tank_id}` (requiere la cookie de sesión, ver [Autorización](#autorización)) envía cada lectura nueva del tanque como un mensaje de
 texto JSON, con la misma forma que `ReadingOut` de la API REST (instantes en UTC):
 
 ```json
@@ -504,7 +561,7 @@ texto JSON, con la misma forma que `ReadingOut` de la API REST (instantes en UTC
 Cómo funciona: al guardar una lectura **nueva** (no un duplicado), el adaptador de persistencia
 ejecuta `pg_notify('fermon_readings', <json>)` en la misma transacción del `INSERT`. PostgreSQL
 entrega la notificación solo al confirmar (`COMMIT`), así que el panel nunca ve datos que no estén
-en la base. Tanto `POST /readings` como el ingestor MQTT pasan por ese adaptador. La API mantiene
+en la base. Tanto `POST /readings` (con `X-Device-Key`) como el ingestor MQTT pasan por ese adaptador. La API mantiene
 una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscritos a ese tanque.
 
 - Tanque desconocido o `tank_id` en blanco: el servidor acepta y cierra de inmediato con el código
@@ -514,14 +571,15 @@ una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscri
   | Código | Significado |
   | ------ | ----------- |
   | `1011` | Error interno: falló la consulta del tanque (p. ej. base de datos caída). El servidor acepta y cierra con el motivo `internal error` y registra el error. Reintente más tarde. |
+  | `4401` | Sin sesión válida: falta la cookie `fermon_session`, expiró o fue revocada, o la cuenta tiene contraseña temporal pendiente. Se cierra antes de consultar el tanque. |
   | `4403` | Origen no permitido (ver abajo). |
   | `4404` | Tanque desconocido o `tank_id` en blanco. |
 
 - Origen no permitido: si el encabezado `Origin` no está en `CORS_ORIGINS` se acepta el
   apretón de manos y se cierra de inmediato con `4403` y un motivo, para que el navegador lo
   observe (CORS no cubre WebSockets, por eso se valida aparte). Los clientes sin
-  `Origin` (scripts, `websocat`) se aceptan: la restricción protege contra páginas de otros sitios,
-  no es autenticación.
+  `Origin` (scripts, `websocat`) se aceptan si la sesión es válida: la comprobación de origen protege
+  contra páginas de otros sitios que aprovechan la cookie del navegador; la autenticación es la sesión.
 - Semántica de entrega: transmisión **en vivo y de mejor esfuerzo**, sin repetición. Las lecturas
   guardadas mientras el cliente estaba desconectado, o mientras la API había perdido su conexión de
   escucha (se reconecta sola con espera de 1 a 30 s), no se reenvían. Al (re)conectar, el cliente
@@ -542,7 +600,8 @@ una conexión dedicada con `LISTEN` y reparte cada mensaje a los clientes suscri
 docker compose exec api uv run python -c "
 import asyncio, websockets
 async def main():
-    async with websockets.connect('ws://localhost:8000/ws/tanks/tank-1') as ws:
+    async with websockets.connect('ws://localhost:8000/ws/tanks/tank-1',
+            additional_headers={'Cookie': 'fermon_session=<valor de cookies.txt>'}) as ws:
         async for message in ws:
             print(message)
 asyncio.run(main())"
@@ -568,6 +627,7 @@ escucha** para `fermon_readings` y `fermon_alerts`, con la misma reconexión y c
 | Código de cierre | Significado |
 | ---------------- | ----------- |
 | `1011` | Error interno: no se pudo suscribir al flujo de alertas. Se acepta y se cierra con el motivo `internal error`. |
+| `4401` | Sin sesión válida (mismas reglas que `/ws/tanks/{id}`). |
 | `4403` | Origen no permitido: mismas reglas de `CORS_ORIGINS` que `/ws/tanks/{id}`. |
 
 - Mejor esfuerzo, sin repetición: las alertas que cambian mientras el cliente estaba desconectado, o

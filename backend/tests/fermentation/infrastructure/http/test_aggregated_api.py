@@ -14,6 +14,7 @@ from fermon.fermentation.infrastructure.http.dependencies import (
     get_list_aggregated_readings,
 )
 from fermon.main import create_app
+from tests.auth_helpers import CSRF_HEADERS, sign_in_fake_sessions
 from tests.fermentation.fakes import InMemoryReadingRepository, InMemoryTankRepository
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -25,6 +26,7 @@ RANGE = {"start": "2026-01-01T12:00:00Z", "end": "2026-01-01T13:00:00Z"}
 async def client() -> AsyncIterator[AsyncClient]:
     readings, tanks = InMemoryReadingRepository(), InMemoryTankRepository()
     app = create_app()
+    sign_in_fake_sessions(app)
     app.dependency_overrides[get_list_aggregated_readings] = lambda: ListAggregatedReadings(
         tanks, readings
     )
@@ -41,7 +43,9 @@ async def client() -> AsyncIterator[AsyncClient]:
             )
         )
     app.dependency_overrides[get_ingest_reading] = lambda: ingest
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=CSRF_HEADERS
+    ) as client:
         yield client
 
 

@@ -6,6 +6,7 @@ from fermon.identity.domain import (
     EmailAlreadyUsedError,
     IdentityError,
     InvalidCredentialsError,
+    InvalidDeviceKeyError,
     InvalidUserError,
     LastAdminError,
     PermissionDeniedError,
@@ -17,6 +18,7 @@ from fermon.identity.domain import (
 # error class -> HTTP status (first isinstance match wins, so list subclasses before bases)
 _STATUS = {
     InvalidCredentialsError: status.HTTP_401_UNAUTHORIZED,
+    InvalidDeviceKeyError: status.HTTP_401_UNAUTHORIZED,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
     TooManyLoginAttemptsError: status.HTTP_429_TOO_MANY_REQUESTS,
     UserNotFoundError: status.HTTP_404_NOT_FOUND,

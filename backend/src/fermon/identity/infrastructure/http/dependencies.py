@@ -24,6 +24,7 @@ from fermon.identity.application import (
     UserRepository,
 )
 from fermon.identity.domain import (
+    InvalidCredentialsError,
     PasswordChangeRequiredError,
     PermissionDeniedError,
     Role,
@@ -175,6 +176,23 @@ async def get_current_user(
     return user
 
 
+async def get_websocket_user(
+    token: SessionTokenDep,
+    current_user: Annotated[CurrentUser, Depends(get_current_user_use_case)],
+) -> User | None:
+    """The signed-in user of a WebSocket handshake, or ``None``.
+
+    Exceptions raised by a dependency cannot become an HTTP error once the handshake is a
+    WebSocket, so the endpoint closes with 4401 itself when this returns ``None`` (no valid
+    session, or the account still has a temporary password).
+    """
+    try:
+        user = await current_user.execute(token)
+    except InvalidCredentialsError:
+        return None
+    return None if user.must_change_password else user
+
+
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 CurrentUserAllowingPasswordChangeDep = Annotated[
     User, Depends(get_current_user_allow_password_change)
@@ -195,6 +213,7 @@ def require_permission(check: Callable[[Role], bool]) -> Callable[[User], Awaita
     return dependency
 
 
+WebSocketUserDep = Annotated[User | None, Depends(get_websocket_user)]
 AdminUserDep = Annotated[User, Depends(require_permission(can_manage_users))]
 LoginDep = Annotated[Login, Depends(get_login)]
 LogoutDep = Annotated[Logout, Depends(get_logout)]

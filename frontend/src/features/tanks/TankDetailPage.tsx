@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import {
   ConnectionIndicator,
@@ -14,6 +15,7 @@ import { ActiveAlerts } from "../alerts/ActiveAlerts";
 import { usePermissions } from "../auth";
 import { formatPressureRange, formatTemperatureRange } from "../batches/format";
 import { ErrorState } from "./components/ErrorState";
+import { RenameTankForm } from "./components/RenameTankForm";
 import { MEASUREMENTS, MEASUREMENT_ORDER, formatDateTime } from "./format";
 import { useTankQuery } from "./useTankQuery";
 
@@ -31,7 +33,8 @@ export function TankDetailPage() {
   const range = parseRange(searchParams.get("range"));
   const tank = useTankQuery(tankId);
   const readings = useAggregatedReadingsQuery(tankId, range);
-  const { canWriteBatches } = usePermissions();
+  const { canWriteBatches, canConfigureTanks } = usePermissions();
+  const [renaming, setRenaming] = useState(false);
   // A terminal close (e.g. 4404) just reads "Offline"; the REST 404 path owns the missing tank.
   const liveStatus = useLiveReadings(tankId === "" ? NO_TANKS : [tankId]);
 
@@ -83,7 +86,13 @@ export function TankDetailPage() {
             {tank.data.display_name ?? tank.data.id}
           </h2>
           <ConnectionIndicator status={liveStatus} />
+          {canConfigureTanks && !renaming && (
+            <button type="button" onClick={() => setRenaming(true)} className="text-sm font-medium underline">
+              Rename
+            </button>
+          )}
         </div>
+        {canConfigureTanks && renaming && <RenameTankForm tank={tank.data} onDone={() => setRenaming(false)} />}
         <p className="text-sm text-slate-600">{tank.data.id}</p>
         <p className="text-sm text-slate-600">First seen {formatDateTime(tank.data.first_seen_at)}</p>
       </header>

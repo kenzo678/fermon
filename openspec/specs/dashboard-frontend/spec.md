@@ -231,7 +231,10 @@ same version as `@playwright/test`) inside the Compose network, using the twin s
 and a global setup MUST wait up to 90 s for readings from `tank-1` and `tank-2`, failing with a clear
 message otherwise. The suite covers: overview with three measurements and "Live"; live update without
 reload; detail header, range selector and three canvas charts; range persisted in the URL; "Tank not found";
-and responsive layout (one column on mobile, at least two per row on desktop). Prerequisites: migrations
+and responsive layout (one column on mobile, at least two per row on desktop). A third project,
+`thesis-flow` (desktop only, run after the others because it renames `tank-1`), covers the thesis flow as admin: a
+profile from `pale_lager`, a batch with it, a brewhouse analysis with in-spec, out-of-spec and warning values,
+the tank rename, and the PDF and CSV downloads; it restores the tank name and leaves no active batch. Prerequisites: migrations
 applied and the simulator running.
 
 #### Scenario: Run the suite
@@ -423,6 +426,40 @@ SHALL see a "Record analysis" form; a `viewer` SHALL only read.
 - GIVEN a signed-in `viewer`
 - WHEN they open an active batch
 - THEN they see its analyses and no "Record analysis" control
+
+### Requirement: Rename tanks
+
+An `admin` MUST be able to rename a tank from its detail page with `PATCH /tanks/{id}`; other roles MUST NOT
+be offered the control (the API is the authority and answers 403). The inline form ("Rename") has a "Display
+name" input with Save, Cancel and, when the tank has a name, "Clear name" (sends `null`). The name is trimmed
+and MUST be 1-64 characters before a request is sent. On success the cached tank detail and list are
+replaced by the answer, so the new name shows wherever `display_name` is used (cards, detail header, batch
+form and alert filter selects).
+
+#### Scenario: Admin renames a tank
+- GIVEN a signed-in `admin` on a tank's detail page
+- WHEN they choose "Rename", type "Fermenter A" and Save
+- THEN the header and the overview card show "Fermenter A" and the form closes
+
+#### Scenario: Clear the name
+- GIVEN a tank with a display name
+- WHEN the admin chooses "Clear name"
+- THEN `{"display_name": null}` is sent and the tank shows its id again
+
+#### Scenario: Client validation
+- GIVEN the form with a blank name, or one over 64 characters after trimming
+- WHEN Save is chosen
+- THEN a message appears next to the input and nothing is sent
+
+#### Scenario: Server validation
+- GIVEN the API answers 422 on `display_name`
+- WHEN the form is submitted
+- THEN the message appears next to the input and the form stays open
+
+#### Scenario: Non-admin
+- GIVEN a signed-in `brewer` or `viewer`
+- WHEN they open a tank's detail page
+- THEN no "Rename" control is shown
 
 ## Known limitations / future work
 

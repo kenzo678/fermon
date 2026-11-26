@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Role } from "../../shared/api";
 import {
   canAcknowledgeAlerts,
+  canConfigureTanks,
   canDownloadReports,
   canManageUsers,
   canRecordLabAnalyses,
@@ -12,6 +13,7 @@ import {
 // Mirrors backend/src/fermon/identity/domain/role.py: keep both tables in step.
 const TABLE: Array<[string, (role: Role) => boolean, Record<Role, boolean>]> = [
   ["canManageUsers", canManageUsers, { admin: true, brewer: false, viewer: false }],
+  ["canConfigureTanks", canConfigureTanks, { admin: true, brewer: false, viewer: false }],
   ["canWriteBatches", canWriteBatches, { admin: true, brewer: true, viewer: false }],
   ["canAcknowledgeAlerts", canAcknowledgeAlerts, { admin: true, brewer: true, viewer: false }],
   ["canWriteQualityProfiles", canWriteQualityProfiles, { admin: true, brewer: true, viewer: false }],

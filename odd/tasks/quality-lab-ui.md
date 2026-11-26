@@ -42,8 +42,9 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
   especificaciones), según rol. Ruta: delegada (escritor único).
 - [x] T3 — Frontend: perfil en el formulario y detalle del lote; análisis de laboratorio en el detalle
   del lote (lista con estados y formulario de carga). Ruta: delegada (escritor único).
-- [ ] T4 — Frontend: renombrar tanque desde el detalle (admin); e2e del flujo completo (lote con perfil
-  → análisis → reporte con el análisis); docs; PR. Ruta: delegada.
+- [x] T4 — Frontend: renombrar tanque desde el detalle (admin); e2e del flujo completo (lote con perfil
+  → análisis → reporte con el análisis); docs. Ruta: delegada (escritor único).
+- [ ] PR — abrirlo (lo hace el usuario).
 
 ## Criterios de aceptación
 - Un brewer crea un perfil desde `pale_lager`, lo asigna a un lote, carga un análisis de mosto y ve
@@ -84,5 +85,21 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
   Deuda no bloqueante de T3: errores del servidor que no corresponden a una fila caen como mensaje
   general; si falla la lista de perfiles, el select del lote muestra solo "None".
 
+- T4 hecha (`031d666`, enmendado con este registro). Ruta: delegada (escritor único). TDD: RED observado en permisos (`TypeError: check
+  is not a function` para `canConfigureTanks`), en el formulario (`Failed to resolve import "./RenameTankForm"`) y
+  en el detalle (`Unable to find an accessible element with the role "button" and name "Rename"`); luego GREEN.
+  Nuevo `RenameTankForm`, `useRenameTank` (reemplaza detalle y lista en caché) y `renameTank`; `canConfigureTanks`
+  solo admin. e2e: nuevo `thesis-flow.spec.ts` como proyecto aparte (`thesis-flow`, escritorio, depende de los
+  otros) porque renombra `tank-1` y `dashboard.spec.ts` lo lee por id; devuelve el nombre a `null`. Corrección
+  incidental: la cabecera (`AppShell`) desbordaba en móvil con el enlace "Quality" y dejaba "Sign out" fuera de
+  pantalla (fallaba `auth.spec` móvil); ahora hace wrap. Suite 480 passed; lint, typecheck y build limpios; e2e
+  25 passed, 1 skipped (preexistente), dos corridas seguidas.
+
+- Revisión RDD de T4 (4 lentes, riesgo alto) aprobada y reconocida. Deuda no bloqueante: el e2e no prueba
+  que el análisis aparezca dentro del PDF (lo cubren los tests del backend sobre el HTML del reporte); el
+  e2e restaura el nombre del tanque a `null` en vez del valor previo; cada corrida deja un perfil
+  "E2E Pale lager <ts>" y un lote finalizado en la base dev (los perfiles no se pueden borrar).
+
 ## Próximo paso
-T4.
+PR abierto a `main`; tras el merge, sincronizar Engram. Después: sensores físicos (ESP32) o endurecer
+seguridad para publicar.

@@ -734,6 +734,9 @@ valor por defecto). Un tanque inexistente muestra "Tank not found". Cualquier ot
 "Page not found". Para servir las rutas
 directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
 
+Un `admin` puede renombrar un tanque desde su detalle ("Rename": nombre de 1 a 64 caracteres, o "Clear name" para
+volver al id); el nombre se actualiza en la vista general, el detalle y los selectores de tanque. Brewers y viewers no ven el control.
+
 
 ### Lotes en la UI
 
@@ -789,7 +792,7 @@ cambia). Si el `ingestor` ya estaba corriendo con otros valores, `up -d` lo recr
 cambio de entorno; no hace falta un segundo ingestor. `frontend/e2e/batches-alerts.spec.ts` crea sus
 propios lotes en `tank-1` (a veces por la API), los finaliza al terminar y corre en serie y solo en
 el proyecto de escritorio, porque un tanque admite un único lote activo y el proyecto móvil
-competiría por él. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
+competiría por él. `frontend/e2e/thesis-flow.spec.ts` (flujo de la tesis: perfil desde `pale_lager`, lote, análisis, renombrar tanque, PDF y CSV) también usa `tank-1` y lo renombra, así que es un proyecto aparte (`thesis-flow`, solo escritorio) que corre cuando terminan los demás y devuelve el nombre a `null`. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
 
 La API exige sesión, así que el servicio `e2e-admin` (perfil `e2e`) crea un administrador
 (`e2e-admin@example.com`, contraseña `E2E_ADMIN_PASSWORD`, por defecto `e2e-admin-password`; sin contraseña

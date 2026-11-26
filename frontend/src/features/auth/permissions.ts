@@ -5,6 +5,8 @@ import type { Role } from "../../shared/api";
 const BREWING: readonly Role[] = ["admin", "brewer"];
 
 export const canManageUsers = (role: Role): boolean => role === "admin";
+// Plant configuration (renaming tanks): admin only, like user management.
+export const canConfigureTanks = (role: Role): boolean => role === "admin";
 export const canWriteBatches = (role: Role): boolean => BREWING.includes(role);
 export const canAcknowledgeAlerts = (role: Role): boolean => BREWING.includes(role);
 export const canWriteQualityProfiles = (role: Role): boolean => BREWING.includes(role);

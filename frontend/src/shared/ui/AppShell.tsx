@@ -34,10 +34,10 @@ export function AppShell({ children, nav = DEFAULT_NAV, account, navBadges = {} 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
           <h1 className="text-lg font-semibold tracking-tight">Fermon</h1>
           {nav.length > 0 && (
-          <nav aria-label="Main" className="flex gap-4 text-sm">
+          <nav aria-label="Main" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
             {nav.map(({ to, label, sections }) => {
               const current = isCurrent(pathname, to, sections);
               return (

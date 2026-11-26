@@ -24,6 +24,14 @@
       "sessions": 2,
       "memories": 7,
       "prompts": 0
+    },
+    {
+      "id": "23614f96",
+      "created_by": "parzival",
+      "created_at": "2026-11-26T02:19:06.864638309Z",
+      "sessions": 2,
+      "memories": 3,
+      "prompts": 0
     }
   ]
 }

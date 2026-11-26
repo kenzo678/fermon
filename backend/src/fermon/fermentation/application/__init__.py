@@ -54,6 +54,7 @@ from fermon.fermentation.application.quality import (
     SaveQualitySpec,
     SaveQualitySpecCommand,
 )
+from fermon.fermentation.application.rename_tank import RenameTank
 from fermon.fermentation.application.tank_overview import TankOverview
 
 __all__ = [
@@ -98,6 +99,7 @@ __all__ = [
     "ReadingRepository",
     "ResolveBatchAlerts",
     "ResolveOrphanAlerts",
+    "RenameTank",
     "TankOverview",
     "TankRepository",
 ]

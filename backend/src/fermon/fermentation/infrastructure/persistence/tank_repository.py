@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -39,6 +39,16 @@ class SqlAlchemyTankRepository:
         async with self._session_factory() as session:
             rows = (await session.execute(select(tanks).order_by(tanks.c.id))).all()
         return [_to_domain(row) for row in rows]
+
+    async def set_display_name(self, tank_id: str, display_name: str | None) -> bool:
+        statement = (
+            update(tanks)
+            .where(tanks.c.id == normalize_id("tank_id", tank_id))
+            .values(display_name=display_name)
+        )
+        async with self._session_factory() as session, session.begin():
+            result = await session.execute(statement)
+        return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
 def _to_domain(row: Any) -> Tank:

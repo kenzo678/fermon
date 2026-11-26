@@ -17,6 +17,7 @@ from fermon.identity.domain.errors import (
 from fermon.identity.domain.role import (
     Role,
     can_acknowledge_alerts,
+    can_configure_tanks,
     can_download_reports,
     can_manage_users,
     can_record_lab_analyses,
@@ -53,6 +54,7 @@ __all__ = [
     "UserNotFoundError",
     "WeakPasswordError",
     "can_acknowledge_alerts",
+    "can_configure_tanks",
     "can_download_reports",
     "can_manage_users",
     "can_record_lab_analyses",

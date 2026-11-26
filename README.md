@@ -148,11 +148,16 @@ ingesta registra el tanque antes de guardar la lectura.
 | --- | --- |
 | `GET /tanks` | Lista de tanques ordenada por `id`, cada uno con su última lectura por medición |
 | `GET /tanks/{tank_id}` | Un tanque con la misma forma; `404` si nunca se registró |
+| `PATCH /tanks/{tank_id}` | Pone o borra el nombre visible (`display_name`); solo `admin`; devuelve la forma de `GET /tanks/{tank_id}` |
 | `GET /tanks/{tank_id}/readings?start=&end=` | Lecturas crudas del rango `[start, end)` |
 
 ```sh
 curl -b cookies.txt localhost:8000/tanks
 curl -b cookies.txt localhost:8000/tanks/tank-1
+# Renombrar (solo admin; los cambios exigen la cookie y X-Requested-With: fermon). null borra el nombre.
+curl -b cookies.txt -X PATCH localhost:8000/tanks/tank-1 \
+  -H 'X-Requested-With: fermon' -H 'Content-Type: application/json' \
+  -d '{"display_name": "Fermenter 1"}'
 ```
 
 ```json
@@ -175,7 +180,9 @@ curl -b cookies.txt localhost:8000/tanks/tank-1
 del lote activo del tanque (ver [Lotes](#lotes)) o `null`. `open_alerts` es la cantidad de alertas
 sin resolver (`open` + `acknowledged`) del tanque (ver [Alertas](#alertas)). Los errores usan la forma
 unificada `{"detail": [{"field", "message"}]}` (`404` para un tanque desconocido, `422` para un
-`tank_id` en blanco). Todos los instantes se devuelven en UTC.
+`tank_id` en blanco). El nombre se recorta y debe tener de 1 a 64 caracteres (`422` sobre
+`display_name` si queda vacío, es más largo o llega un campo desconocido); un `viewer` o `brewer` recibe `403`. Gana la última escritura
+(el nombre no tiene versión) y la primera lectura de un tanque nunca pisa un nombre ya puesto. Todos los instantes se devuelven en UTC.
 
 ### CORS
 
@@ -196,7 +203,7 @@ La API tiene usuarios con roles y sesiones del lado del servidor. Todo exige ini
 
 | Rol | Permisos |
 | --- | --- |
-| `admin` | Todo, incluida la gestión de usuarios |
+| `admin` | Todo, incluidas la gestión de usuarios y la configuración de planta (renombrar tanques) |
 | `brewer` | Crear, editar, iniciar y finalizar lotes; reconocer alertas; crear perfiles y especificaciones de calidad; registrar análisis de laboratorio; descargar reportes |
 | `viewer` | Solo lectura (tanques, lecturas, lotes, alertas, perfiles, análisis) y descarga de reportes |
 
@@ -727,6 +734,9 @@ valor por defecto). Un tanque inexistente muestra "Tank not found". Cualquier ot
 "Page not found". Para servir las rutas
 directamente al recargar, la imagen de producción usa el fallback SPA de nginx.
 
+Un `admin` puede renombrar un tanque desde su detalle ("Rename": nombre de 1 a 64 caracteres, o "Clear name" para
+volver al id); el nombre se actualiza en la vista general, el detalle y los selectores de tanque. Brewers y viewers no ven el control.
+
 
 ### Lotes en la UI
 
@@ -782,7 +792,7 @@ cambia). Si el `ingestor` ya estaba corriendo con otros valores, `up -d` lo recr
 cambio de entorno; no hace falta un segundo ingestor. `frontend/e2e/batches-alerts.spec.ts` crea sus
 propios lotes en `tank-1` (a veces por la API), los finaliza al terminar y corre en serie y solo en
 el proyecto de escritorio, porque un tanque admite un único lote activo y el proyecto móvil
-competiría por él. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
+competiría por él. `frontend/e2e/thesis-flow.spec.ts` (flujo de la tesis: perfil desde `pale_lager`, lote, análisis, renombrar tanque, PDF y CSV) también usa `tank-1` y lo renombra, así que es un proyecto aparte (`thesis-flow`, solo escritorio) que corre cuando terminan los demás y devuelve el nombre a `null`. Para volver a los umbrales normales: `unset` las variables y `up -d ingestor`.
 
 La API exige sesión, así que el servicio `e2e-admin` (perfil `e2e`) crea un administrador
 (`e2e-admin@example.com`, contraseña `E2E_ADMIN_PASSWORD`, por defecto `e2e-admin-password`; sin contraseña
@@ -817,3 +827,18 @@ por lo que en cada reconexión el cliente invalida (y vuelve a pedir por REST) l
 las series agregadas de ese tanque. Las invalidaciones de la lista se agrupan (250 ms) cuando varios
 sockets reabren a la vez, y las series agregadas respetan el mismo límite de 15 s por tanque. Un
 tanque con cierre definitivo (4403/4404) no marca "Offline" mientras otros sigan transmitiendo.
+
+### Perfiles de calidad en la UI
+
+La navegación incluye "Quality" (todos los roles) hacia `/quality-profiles`: lista de perfiles con su número de
+especificaciones y, para `admin`/`brewer`, "New profile" (nombre y plantilla opcional o perfil en blanco).
+`/quality-profiles/:id` agrupa las especificaciones por etapa (mosto frío, maduración, cerveza brillante,
+envasado) con aceptación, rango interno y objetivo; `admin`/`brewer` pueden agregar, editar y borrar (con
+confirmación); el `viewer` solo lee. Los errores `422`/`409` del servidor se muestran junto a su campo.
+
+El formulario de lote (crear y editar) ofrece "Quality profile" (opcional, "None" por defecto; deshabilitado en
+lotes terminados) y el detalle muestra el perfil enlazado. Debajo, "Lab analyses" lista los análisis por etapa con
+resumen ("1 out of spec, 1 warning") y cada valor con su estado (In spec verde, Warning ámbar, Out of spec rojo,
+No spec gris, siempre con texto). `admin`/`brewer` registran uno con "Record analysis" (etapa, fecha de muestreo
+sin futuro, analista, notas y valores validados contra los límites físicos del catálogo; sugiere los parámetros
+del perfil para la etapa); un lote planificado solo muestra una nota y el `viewer` solo lee.

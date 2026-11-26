@@ -44,6 +44,12 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Tanks" })).not.toHaveAttribute("aria-current");
   });
 
+  it("links to the quality profiles and marks them current on their pages", () => {
+    renderShell("content", "/quality-profiles/p1");
+    expect(screen.getByRole("link", { name: "Quality" })).toHaveAttribute("href", "/quality-profiles");
+    expect(screen.getByRole("link", { name: "Quality" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("links to the alerts page", () => {
     renderShell("content", "/alerts");
     expect(screen.getByRole("link", { name: "Alerts" })).toHaveAttribute("href", "/alerts");

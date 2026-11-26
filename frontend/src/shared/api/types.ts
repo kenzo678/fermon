@@ -48,6 +48,8 @@ export interface Batch {
   finished_at: string | null;
   notes: string | null;
   created_at: string;
+  /** The quality profile its lab analyses are judged against. */
+  quality_profile_id: string | null;
   /** Optimistic-concurrency counter: send it back on edits. */
   version: number;
 }
@@ -146,4 +148,66 @@ export interface User {
   active: boolean;
   /** Optimistic-concurrency counter: send it back on edits. */
   version: number;
+}
+
+export type QualityStage = "brewhouse" | "maturation" | "bright_beer" | "packaged";
+
+/** One entry of the lab parameter catalog; `minimum`/`maximum` are the physically plausible limits. */
+export interface QualityParameterInfo {
+  code: string;
+  name: string;
+  unit: string;
+  minimum: number;
+  maximum: number;
+}
+
+/** Inclusive range; a null bound means no limit on that side. */
+export interface SpecRange {
+  min: number | null;
+  max: number | null;
+}
+
+export interface QualitySpec {
+  stage: QualityStage;
+  parameter: string;
+  unit: string;
+  acceptance: SpecRange;
+  internal: SpecRange | null;
+  target: number | null;
+}
+
+export interface QualityProfile {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  specs: QualitySpec[];
+}
+
+/** A preset that prefills a new profile; `template` is the value to send when creating. */
+export interface QualityProfileTemplate {
+  template: string;
+  specs: QualitySpec[];
+}
+
+export type QualityStatus = "in_spec" | "warning" | "out_of_spec" | "no_spec";
+
+export interface LabResult {
+  parameter: string;
+  value: number;
+  unit: string;
+  status: QualityStatus;
+}
+
+/** A sample of a batch; the statuses are those of the moment it was recorded. */
+export interface LabAnalysis {
+  id: string;
+  batch_id: string;
+  stage: QualityStage;
+  sampled_at: string;
+  created_at: string;
+  analyst: string | null;
+  notes: string | null;
+  quality_profile_id: string | null;
+  results: LabResult[];
 }

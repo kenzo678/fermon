@@ -69,6 +69,11 @@ export async function unresolvedAlertCount(request: APIRequestContext): Promise<
   return tanks.reduce((sum, tank) => sum + tank.open_alerts, 0);
 }
 
+/** Sets or (with `null`) clears a tank's display name; admin session required. */
+export async function setTankName(request: APIRequestContext, tankId: string, name: string | null): Promise<void> {
+  await ok(await request.patch(`${API_URL}/tanks/${tankId}`, { data: { display_name: name } }));
+}
+
 /** Finishes whatever is active on the shared tank so the next test starts from a usable state. */
 export async function releaseTank(request: APIRequestContext): Promise<void> {
   const active = await ok<ApiBatch[]>(

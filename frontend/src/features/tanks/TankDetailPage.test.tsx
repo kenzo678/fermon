@@ -287,6 +287,38 @@ describe("TankDetailPage", () => {
     });
   });
 
+  describe("renaming", () => {
+    it("lets an admin rename the tank and shows the new name in the header", async () => {
+      // A stateful server: the refetch after the save must see the new name too.
+      let stored: string | null = "Pale Ale";
+      server.use(
+        http.get(tankUrl, () => HttpResponse.json(makeTank("tank-1", { display_name: stored }))),
+        http.get(aggUrl, () => HttpResponse.json(fullSeries)),
+        http.patch(tankUrl, async ({ request }) => {
+          stored = ((await request.json()) as { display_name: string | null }).display_name;
+          return HttpResponse.json(makeTank("tank-1", { display_name: stored }));
+        }),
+      );
+      renderWithProviders(<Page />, { route: "/tanks/tank-1" });
+      await screen.findByRole("heading", { level: 2, name: "Pale Ale" });
+      await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+      const input = screen.getByLabelText("Display name");
+      await userEvent.clear(input);
+      await userEvent.type(input, "Fermenter A");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(await screen.findByRole("heading", { level: 2, name: "Fermenter A" })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Display name")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Rename" })).toBeInTheDocument();
+    });
+
+    it.each(["brewer", "viewer"] as const)("offers no rename control to a %s", async (role) => {
+      useHappyPath();
+      renderWithProviders(<Page />, { route: "/tanks/tank-1", user: makeUser({ role }) });
+      await screen.findAllByTestId("chart");
+      expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    });
+  });
+
   describe("active alerts", () => {
     it("lists the unresolved alerts of this tank", async () => {
       useHappyPath();

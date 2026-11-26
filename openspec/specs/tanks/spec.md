@@ -1,7 +1,7 @@
 # Tanks Specification
 
-Resumen: los tanques se registran solos con la primera lectura y se consultan con su última lectura por
-medición, lote activo y alertas abiertas.
+Resumen: los tanques se registran solos con la primera lectura, un admin puede ponerles nombre, y se
+consultan con su última lectura por medición, lote activo y alertas abiertas.
 
 ## Purpose
 
@@ -81,6 +81,47 @@ respond `404` with `{"detail": [{"field": "tank_id", "message": ...}]}`; a blank
 - WHEN `GET /tanks/nope` is called
 - THEN the response is `404` with `field` `tank_id`
 
+### Requirement: Rename a tank
+
+`PATCH /tanks/{tank_id}` with `{"display_name": <string|null>}` MUST set or clear the tank's
+`display_name` and respond `200` with the same shape as `GET /tanks/{tank_id}`. The name MUST be trimmed
+and, after trimming, 1-64 characters; `null` clears it. A blank or too long name, a non-string value, a
+missing `display_name` or any unknown field MUST respond `422` (`field` `display_name` for the name
+rules). An unknown tank MUST respond `404` with `field` `tank_id`. Only `admin` MAY rename (plant
+configuration, `can_configure_tanks`): `viewer` and `brewer` MUST get `403`, no session `401`, and the CSRF
+header rule applies like any write. The name has no version: concurrent renames are last-write-wins. The
+column already exists (no migration). Auto-registration MUST never overwrite a name that was set.
+
+#### Scenario: Admin renames a tank
+- GIVEN tank `tank-1` without a name
+- WHEN an admin sends `PATCH /tanks/tank-1` with `{"display_name": "  Fermenter 1 "}`
+- THEN the response is `200` with `display_name` `Fermenter 1` and later `GET`s return it
+
+#### Scenario: Clear the name
+- GIVEN a tank named `Fermenter 1`
+- WHEN an admin sends `{"display_name": null}`
+- THEN `display_name` is `null`
+
+#### Scenario: Invalid name
+- GIVEN tank `tank-1`
+- WHEN an admin sends `""`, `"   "` or a 65-character name
+- THEN the response is `422` with `field` `display_name` and the name does not change
+
+#### Scenario: Not an admin
+- GIVEN a `viewer` or a `brewer`
+- WHEN they send `PATCH /tanks/tank-1`
+- THEN the response is `403` and the name does not change
+
+#### Scenario: Unknown tank
+- GIVEN no tank `nope`
+- WHEN an admin sends `PATCH /tanks/nope`
+- THEN the response is `404` with `field` `tank_id`
+
+#### Scenario: Registration keeps the name
+- GIVEN a tank named `Fermenter 1`
+- WHEN an earlier out-of-order reading of that tank is ingested
+- THEN `first_seen_at` moves back and `display_name` stays `Fermenter 1`
+
 ### Requirement: CORS
 
 The API MUST allow browser calls only from the origins listed in `CORS_ORIGINS` (comma-separated list or
@@ -110,7 +151,7 @@ is unavailable.
 
 ## Known limitations / future work
 
-- `display_name` has no write path yet; it is always `null` unless set directly in the database.
+- `display_name` is last-write-wins (no `version`): two admins renaming at once is not detected.
 - Every REST route (including `GET /tanks`) requires a login session; writes need the `brewer` or `admin`
   role (see the README, "Autorización"). Only `/health`, `/auth/login`, `/auth/logout` (idempotent), the OpenAPI docs and the device-keyed `POST /readings`
   are reachable without a session.

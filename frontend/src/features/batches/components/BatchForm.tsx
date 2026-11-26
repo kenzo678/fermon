@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import type { BatchTemplate, BatchTemplateName, Tank } from "../../../shared/api";
+import type { BatchTemplate, BatchTemplateName, QualityProfile, Tank } from "../../../shared/api";
 import { FIELD_ORDER, applyTemplate, validate } from "../form";
 import type { FieldName, FormErrors, FormValues, ServerErrors } from "../form";
 import { Field, controlClass } from "./Field";
@@ -10,6 +10,8 @@ interface BatchFormProps {
   initialValues: FormValues;
   tanks: Tank[];
   templates: BatchTemplate[];
+  /** The profiles the batch can be judged against; empty while loading or when there are none. */
+  profiles?: QualityProfile[];
   submitLabel: string;
   submitting: boolean;
   /** Errors from the last failed request; field errors render next to their input. */
@@ -39,6 +41,7 @@ export function BatchForm({
   initialValues,
   tanks,
   templates,
+  profiles = [],
   submitLabel,
   submitting,
   serverErrors,
@@ -167,6 +170,21 @@ export function BatchForm({
               {TEMPLATE_OPTIONS.map((template) => (
                 <option key={template} value={template}>
                   {TEMPLATE_LABELS[template]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Quality profile" error={errors.quality_profile_id}>
+            <select
+              name="quality_profile_id"
+              value={values.quality_profile_id}
+              onChange={(e) => set("quality_profile_id", e.target.value)}
+              className={controlClass}
+            >
+              <option value="">None</option>
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
                 </option>
               ))}
             </select>

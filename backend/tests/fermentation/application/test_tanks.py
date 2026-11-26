@@ -3,12 +3,13 @@ from uuid import UUID
 
 import pytest
 
-from fermon.fermentation.application import GetTank, ListTanks, TankOverview
+from fermon.fermentation.application import GetTank, ListTanks, RenameTank, TankOverview
 from fermon.fermentation.domain import (
     Alert,
     AlertKind,
     AlertStatus,
     InvalidIdentifierError,
+    InvalidTankError,
     MeasurementType,
     Reading,
     TankNotFoundError,
@@ -175,3 +176,64 @@ async def test_list_tanks_counts_alerts_with_a_single_repository_call() -> None:
     await ListTanks(tanks, readings, InMemoryBatchRepository(), Counting()).execute()
 
     assert Counting.calls == 1
+
+
+def rename_use_case(
+    readings: InMemoryReadingRepository, tanks: InMemoryTankRepository
+) -> RenameTank:
+    get_tank = GetTank(tanks, readings, InMemoryBatchRepository(), InMemoryAlertRepository())
+    return RenameTank(tanks, get_tank)
+
+
+async def test_rename_tank_sets_the_trimmed_name_and_returns_the_overview() -> None:
+    readings, tanks = await seeded()
+
+    overview = await rename_use_case(readings, tanks).execute(" tank-1 ", "  Fermenter 1 ")
+
+    assert overview.tank.display_name == "Fermenter 1"
+    assert overview.latest[MeasurementType.TEMPERATURE].value == 19.0
+    stored = await tanks.get("tank-1")
+    assert stored is not None
+    assert stored.display_name == "Fermenter 1"
+
+
+async def test_rename_tank_to_none_clears_the_name() -> None:
+    readings, tanks = await seeded()
+    use_case = rename_use_case(readings, tanks)
+    await use_case.execute("tank-1", "Fermenter 1")
+
+    overview = await use_case.execute("tank-1", None)
+
+    assert overview.tank.display_name is None
+
+
+async def test_rename_unknown_tank_raises_not_found() -> None:
+    readings, tanks = await seeded()
+
+    with pytest.raises(TankNotFoundError) as exc:
+        await rename_use_case(readings, tanks).execute("nope", "Fermenter 1")
+
+    assert exc.value.tank_id == "nope"
+
+
+async def test_rename_with_an_invalid_name_changes_nothing() -> None:
+    readings, tanks = await seeded()
+
+    with pytest.raises(InvalidTankError) as exc:
+        await rename_use_case(readings, tanks).execute("tank-1", "   ")
+
+    assert exc.value.field == "display_name"
+    stored = await tanks.get("tank-1")
+    assert stored is not None
+    assert stored.display_name is None
+
+
+async def test_registration_does_not_clobber_a_name_that_was_set() -> None:
+    readings, tanks = await seeded()
+    await rename_use_case(readings, tanks).execute("tank-1", "Fermenter 1")
+
+    await tanks.ensure("tank-1", T0 - timedelta(hours=1))  # an earlier, out-of-order reading
+
+    stored = await tanks.get("tank-1")
+    assert stored is not None
+    assert (stored.display_name, stored.first_seen_at) == ("Fermenter 1", T0 - timedelta(hours=1))

@@ -34,6 +34,7 @@ from fermon.fermentation.application.quality import (
     RemoveQualitySpec,
     SaveQualitySpec,
 )
+from fermon.fermentation.application.rename_tank import RenameTank
 from fermon.fermentation.domain import AlertRules
 from fermon.fermentation.infrastructure.persistence import (
     SqlAlchemyAlertRepository,
@@ -97,6 +98,10 @@ def get_get_tank(session_factory: SessionFactory) -> GetTank:
         SqlAlchemyBatchRepository(session_factory),
         SqlAlchemyAlertRepository(session_factory),
     )
+
+
+def get_rename_tank(session_factory: SessionFactory) -> RenameTank:
+    return RenameTank(SqlAlchemyTankRepository(session_factory), get_get_tank(session_factory))
 
 
 def get_clock() -> Clock:
@@ -227,6 +232,7 @@ IngestReadingDep = Annotated[IngestReading, Depends(get_ingest_reading)]
 ListReadingsDep = Annotated[ListReadings, Depends(get_list_readings)]
 ListTanksDep = Annotated[ListTanks, Depends(get_list_tanks)]
 GetTankDep = Annotated[GetTank, Depends(get_get_tank)]
+RenameTankDep = Annotated[RenameTank, Depends(get_rename_tank)]
 ReadingFeedDep = Annotated[ReadingFeed, Depends(get_reading_feed)]
 ListAggregatedReadingsDep = Annotated[ListAggregatedReadings, Depends(get_list_aggregated_readings)]
 BuildBatchReportDep = Annotated[BuildBatchReport, Depends(get_build_batch_report)]

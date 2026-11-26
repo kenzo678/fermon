@@ -231,7 +231,10 @@ same version as `@playwright/test`) inside the Compose network, using the twin s
 and a global setup MUST wait up to 90 s for readings from `tank-1` and `tank-2`, failing with a clear
 message otherwise. The suite covers: overview with three measurements and "Live"; live update without
 reload; detail header, range selector and three canvas charts; range persisted in the URL; "Tank not found";
-and responsive layout (one column on mobile, at least two per row on desktop). Prerequisites: migrations
+and responsive layout (one column on mobile, at least two per row on desktop). A third project,
+`thesis-flow` (desktop only, run after the others because it renames `tank-1`), covers the thesis flow as admin: a
+profile from `pale_lager`, a batch with it, a brewhouse analysis with in-spec, out-of-spec and warning values,
+the tank rename, and the PDF and CSV downloads; it restores the tank name and leaves no active batch. Prerequisites: migrations
 applied and the simulator running.
 
 #### Scenario: Run the suite
@@ -318,6 +321,145 @@ that the report is partial.
 - GIVEN a signed-in `viewer`
 - WHEN they open an `active` or `finished` batch
 - THEN they can download its reports
+
+### Requirement: Quality profiles
+The header SHALL offer a "Quality" item, visible to every role, linking to `/quality-profiles`. The list page
+SHALL show every profile by name with its number of specs. The detail page `/quality-profiles/:id` SHALL group
+the specs by stage in process order (Brewhouse (cold wort), Maturation, Bright beer, Packaged), showing for each
+the catalog name and unit of the parameter, its acceptance range, internal range and target, with "—" for an
+absent range or target and "≤ x" / "≥ x" for a half-open one. Users who may write quality profiles (admin,
+brewer) SHALL be able to create a profile (name and an optional template, or a blank profile), add, edit and
+delete specs (deleting asks for confirmation). Everyone else MUST see no write control. The spec form SHALL
+offer, per stage, only the parameters not yet specified, check the obvious rules on the client (min below max,
+values within the parameter's physical range, internal inside acceptance, target inside the tightest range) and
+show server errors next to the input they name (`name`, `acceptance.min`, `internal.max`, ...). The pages are
+lazy chunks; the server stays authoritative.
+
+#### Scenario: Create from a template
+- GIVEN a brewer on `/quality-profiles`
+- WHEN they create a profile with a name and the `pale_lager` template
+- THEN `POST /quality-profiles` carries both and the app opens the new profile's detail page
+
+#### Scenario: Duplicate name
+- GIVEN a profile named "House lager"
+- WHEN a brewer creates another with that name and the API answers 409 on `name`
+- THEN the message is shown on the name field
+
+#### Scenario: Specs by stage
+- GIVEN a profile with specs at several stages
+- WHEN its detail page opens
+- THEN each stage is a section in process order, and a spec with only a maximum shows "≤ max" with its unit
+
+#### Scenario: Edit rejected by the server
+- GIVEN a brewer editing a spec
+- WHEN the API answers 422 on `internal.min`
+- THEN the message appears next to "Internal min" and disappears when they edit that input
+
+#### Scenario: Delete
+- GIVEN a brewer on a profile detail page
+- WHEN they choose Delete on a spec and confirm
+- THEN `DELETE /quality-profiles/{id}/specs/{stage}/{parameter}` is sent and the spec disappears
+
+#### Scenario: Viewer
+- GIVEN a signed-in `viewer`
+- WHEN they open the list or a detail page
+- THEN they see everything and no "New profile", "Add specification", Edit or Delete control
+
+### Requirement: Batch quality profile and lab analyses
+The batch create and edit form SHALL offer an optional "Quality profile" select, loaded from `/quality-profiles`,
+with "None" as its default; it SHALL send `quality_profile_id` only when one is chosen on create, and send the id
+or `null` (to clear it) on edit, and it SHALL be disabled for finished batches. A 404 on `quality_profile_id`
+SHALL appear next to the select. The batch detail page SHALL show the profile name linked to
+`/quality-profiles/:id`, or "No quality profile". Below the form it SHALL show a "Lab analyses" section: for a
+planned batch only a note that analyses can be recorded once the batch is active; otherwise the analyses grouped by
+stage in process order, each with its sampling time (local), analyst, notes, a one-line summary (such as
+"1 out of spec, 1 warning") and every value with the catalog name, unit and a status badge. Badges SHALL carry a
+text label as well as a colour: In spec green, Warning amber, Out of spec red, No spec grey. `admin` and `brewer`
+SHALL see a "Record analysis" form; a `viewer` SHALL only read.
+
+#### Scenario: Choose a profile on a batch
+- GIVEN a brewer creating a batch
+- WHEN they pick "Seasonal" in "Quality profile" and save
+- THEN `POST /batches` carries that profile's id, and leaving "None" omits `quality_profile_id`
+
+#### Scenario: Clear the profile
+- GIVEN an active batch with a profile
+- WHEN a brewer selects "None" and saves
+- THEN the PATCH body carries `quality_profile_id: null`
+
+#### Scenario: Unknown profile
+- GIVEN the API answers 404 on `quality_profile_id`
+- WHEN the form is submitted
+- THEN the message appears next to the "Quality profile" select
+
+#### Scenario: Analyses of an active batch
+- GIVEN an active batch with a brewhouse analysis holding one out-of-spec and one warning value
+- WHEN its detail page opens
+- THEN the Brewhouse (cold wort) group shows the analysis with "1 out of spec, 1 warning" and each value with its
+  unit and its labelled badge
+
+#### Scenario: Planned batch
+- GIVEN a planned batch
+- WHEN its detail page opens
+- THEN the Lab analyses section only says analyses can be recorded once the batch is active
+
+#### Scenario: Record an analysis with suggestions
+- GIVEN a brewer on a batch whose profile specifies pH and color for brewhouse
+- WHEN they open "Record analysis"
+- THEN the stage is Brewhouse, "Sampled at" is now, and pH and Color rows are suggested; a parameter already chosen
+  in another row is not offered again
+- AND WHEN they enter values and save, `POST /batches/{id}/lab-analyses` is sent with the values keyed by
+  parameter code, the form closes and the new analysis appears with its evaluated statuses
+
+#### Scenario: Client-side checks
+- GIVEN the record form
+- WHEN "Sampled at" is in the future or a value is outside the parameter's physical limits
+- THEN the message appears next to the input and nothing is sent
+
+#### Scenario: Server errors
+- GIVEN the API answers 422 on `values.ph` and `sampled_at`
+- WHEN the form is submitted
+- THEN the messages appear on the pH row and next to "Sampled at"
+- AND a 409 on `status` appears as a form-level message
+
+#### Scenario: Viewer
+- GIVEN a signed-in `viewer`
+- WHEN they open an active batch
+- THEN they see its analyses and no "Record analysis" control
+
+### Requirement: Rename tanks
+
+An `admin` MUST be able to rename a tank from its detail page with `PATCH /tanks/{id}`; other roles MUST NOT
+be offered the control (the API is the authority and answers 403). The inline form ("Rename") has a "Display
+name" input with Save, Cancel and, when the tank has a name, "Clear name" (sends `null`). The name is trimmed
+and MUST be 1-64 characters before a request is sent. On success the cached tank detail and list are
+replaced by the answer, so the new name shows wherever `display_name` is used (cards, detail header, batch
+form and alert filter selects).
+
+#### Scenario: Admin renames a tank
+- GIVEN a signed-in `admin` on a tank's detail page
+- WHEN they choose "Rename", type "Fermenter A" and Save
+- THEN the header and the overview card show "Fermenter A" and the form closes
+
+#### Scenario: Clear the name
+- GIVEN a tank with a display name
+- WHEN the admin chooses "Clear name"
+- THEN `{"display_name": null}` is sent and the tank shows its id again
+
+#### Scenario: Client validation
+- GIVEN the form with a blank name, or one over 64 characters after trimming
+- WHEN Save is chosen
+- THEN a message appears next to the input and nothing is sent
+
+#### Scenario: Server validation
+- GIVEN the API answers 422 on `display_name`
+- WHEN the form is submitted
+- THEN the message appears next to the input and the form stays open
+
+#### Scenario: Non-admin
+- GIVEN a signed-in `brewer` or `viewer`
+- WHEN they open a tank's detail page
+- THEN no "Rename" control is shown
 
 ## Known limitations / future work
 

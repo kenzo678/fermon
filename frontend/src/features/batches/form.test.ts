@@ -136,6 +136,29 @@ describe("request bodies", () => {
   });
 });
 
+describe("quality profile in request bodies", () => {
+  it("starts with no profile and reads it from the batch", () => {
+    expect(emptyValues("2026-03-01T10:00").quality_profile_id).toBe("");
+    expect(valuesFromBatch(makeBatch({ quality_profile_id: "p1" })).quality_profile_id).toBe("p1");
+    expect(valuesFromBatch(makeBatch()).quality_profile_id).toBe("");
+  });
+
+  it("sends the profile on create only when chosen", () => {
+    expect(toCreateBody(valid())).not.toHaveProperty("quality_profile_id");
+    expect(toCreateBody(valid({ quality_profile_id: "p1" }))).toMatchObject({ quality_profile_id: "p1" });
+  });
+
+  it("sends the profile on patch, with null to clear it", () => {
+    expect(toPatchBody(valid({ quality_profile_id: "p1" }), 2).quality_profile_id).toBe("p1");
+    expect(toPatchBody(valid({ quality_profile_id: "" }), 2).quality_profile_id).toBeNull();
+  });
+
+  it("maps a profile error to its input", () => {
+    const error = new ApiError(404, [{ field: "quality_profile_id", message: "quality profile not found" }]);
+    expect(mapServerErrors(error).fields).toEqual({ quality_profile_id: "quality profile not found" });
+  });
+});
+
 describe("local datetime conversion", () => {
   it("round-trips through the datetime-local format", () => {
     const iso = "2026-03-01T10:00:00.000Z";

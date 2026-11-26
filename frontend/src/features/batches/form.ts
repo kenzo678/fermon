@@ -5,6 +5,8 @@ import type { Batch, BatchTemplate, BatchTemplateName, TargetRanges } from "../.
 export interface FormValues {
   tank_id: string;
   template: BatchTemplateName | "";
+  /** The profile's id; "" means none. */
+  quality_profile_id: string;
   beer_name: string;
   style: string;
   planned_start: string;
@@ -24,6 +26,7 @@ export type FormErrors = Partial<Record<FieldName, string>>;
 export const FIELD_ORDER: FieldName[] = [
   "tank_id",
   "template",
+  "quality_profile_id",
   "beer_name",
   "style",
   "planned_start",
@@ -58,6 +61,7 @@ export function emptyValues(plannedStart: string): FormValues {
   return {
     tank_id: "",
     template: "",
+    quality_profile_id: "",
     beer_name: "",
     style: "",
     planned_start: plannedStart,
@@ -95,6 +99,7 @@ export function valuesFromBatch(batch: Batch): FormValues {
   return {
     tank_id: batch.tank_id,
     template: batch.template,
+    quality_profile_id: batch.quality_profile_id ?? "",
     beer_name: batch.beer_name,
     style: batch.style,
     planned_start: toLocalInput(batch.planned_start),
@@ -198,6 +203,7 @@ export interface CreateBatchBody {
   planned_start: string;
   expected_end?: string;
   notes?: string;
+  quality_profile_id?: string;
 }
 
 export function toCreateBody(values: FormValues): CreateBatchBody {
@@ -213,12 +219,14 @@ export function toCreateBody(values: FormValues): CreateBatchBody {
   const expectedEnd = fromLocalInput(values.expected_end);
   if (values.expected_end !== "") body.expected_end = expectedEnd ?? values.expected_end;
   if (values.notes.trim() !== "") body.notes = values.notes.trim();
+  if (values.quality_profile_id !== "") body.quality_profile_id = values.quality_profile_id;
   return body;
 }
 
-export interface PatchBatchBody extends Omit<CreateBatchBody, "tank_id" | "expected_end" | "notes"> {
+export interface PatchBatchBody extends Omit<CreateBatchBody, "tank_id" | "expected_end" | "notes" | "quality_profile_id"> {
   expected_end: string | null;
   notes: string | null;
+  quality_profile_id: string | null;
   version: number;
 }
 
@@ -233,6 +241,7 @@ export function toPatchBody(values: FormValues, version: number): PatchBatchBody
     targets: targetsBody(values, true),
     expected_end: create.expected_end ?? null,
     notes: create.notes ?? null,
+    quality_profile_id: create.quality_profile_id ?? null,
     version,
   };
 }

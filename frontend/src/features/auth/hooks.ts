@@ -19,6 +19,7 @@ export function useSession() {
 export interface Permissions {
   role: Role | null;
   canManageUsers: boolean;
+  canConfigureTanks: boolean;
   canWriteBatches: boolean;
   canAcknowledgeAlerts: boolean;
   canWriteQualityProfiles: boolean;
@@ -33,6 +34,7 @@ export function usePermissions(): Permissions {
     () => ({
       role,
       canManageUsers: role !== null && permissions.canManageUsers(role),
+      canConfigureTanks: role !== null && permissions.canConfigureTanks(role),
       canWriteBatches: role !== null && permissions.canWriteBatches(role),
       canAcknowledgeAlerts: role !== null && permissions.canAcknowledgeAlerts(role),
       canWriteQualityProfiles: role !== null && permissions.canWriteQualityProfiles(role),

@@ -21,12 +21,20 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   projects: [
-    { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /thesis-flow\.spec\.ts/ },
     {
       name: "mobile",
       use: { ...devices["Pixel 7"] },
       // These specs mutate shared tank state (one active batch per tank): desktop only, to avoid races.
-      testIgnore: /batches-alerts\.spec\.ts/,
+      testIgnore: /batches-alerts\.spec\.ts|thesis-flow\.spec\.ts/,
+    },
+    {
+      // Uses tank-1 and renames it, which would break the other specs reading it by id, so it runs alone
+      // once they are done (a failure there skips it), and only on desktop.
+      name: "thesis-flow",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /thesis-flow\.spec\.ts/,
+      dependencies: ["desktop-chromium", "mobile"],
     },
   ],
 });

@@ -42,6 +42,16 @@ const UsersPage = lazy(() =>
   import("../features/users/UsersPage").then((module) => ({ default: module.UsersPage })),
 );
 
+// Quality profile pages carry the spec forms; the overview does not need them.
+const QualityProfilesPage = lazy(() =>
+  import("../features/quality/QualityProfilesPage").then((module) => ({ default: module.QualityProfilesPage })),
+);
+const QualityProfileDetailPage = lazy(() =>
+  import("../features/quality/QualityProfileDetailPage").then((module) => ({
+    default: module.QualityProfileDetailPage,
+  })),
+);
+
 const NAV_BADGES = { "/alerts": <AlertNavBadge /> };
 const ADMIN_NAV: NavItem[] = [...DEFAULT_NAV, { to: "/users", label: "Users", sections: ["/users"] }];
 
@@ -119,6 +129,22 @@ export function AppRoutes() {
             element={
               <Lazy>
                 <AlertsPage />
+              </Lazy>
+            }
+          />
+          <Route
+            path="/quality-profiles"
+            element={
+              <Lazy>
+                <QualityProfilesPage />
+              </Lazy>
+            }
+          />
+          <Route
+            path="/quality-profiles/:profileId"
+            element={
+              <Lazy>
+                <QualityProfileDetailPage />
               </Lazy>
             }
           />

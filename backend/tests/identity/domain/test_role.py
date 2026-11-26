@@ -3,6 +3,7 @@ import pytest
 from fermon.identity.domain import (
     Role,
     can_acknowledge_alerts,
+    can_configure_tanks,
     can_download_reports,
     can_manage_users,
     can_record_lab_analyses,
@@ -11,11 +12,11 @@ from fermon.identity.domain import (
 )
 
 # role -> (manage users, write batches, acknowledge alerts, download reports,
-#          write quality profiles, record lab analyses)
+#          write quality profiles, record lab analyses, configure tanks)
 PERMISSIONS = {
-    Role.ADMIN: (True, True, True, True, True, True),
-    Role.BREWER: (False, True, True, True, True, True),
-    Role.VIEWER: (False, False, False, True, False, False),
+    Role.ADMIN: (True, True, True, True, True, True, True),
+    Role.BREWER: (False, True, True, True, True, True, False),
+    Role.VIEWER: (False, False, False, True, False, False, False),
 }
 
 
@@ -28,6 +29,7 @@ def test_permission_table(role: Role) -> None:
         can_download_reports(role),
         can_write_quality_profiles(role),
         can_record_lab_analyses(role),
+        can_configure_tanks(role),
     )
     assert granted == PERMISSIONS[role]
 

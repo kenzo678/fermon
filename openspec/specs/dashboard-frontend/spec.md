@@ -319,6 +319,49 @@ that the report is partial.
 - WHEN they open an `active` or `finished` batch
 - THEN they can download its reports
 
+### Requirement: Quality profiles
+The header SHALL offer a "Quality" item, visible to every role, linking to `/quality-profiles`. The list page
+SHALL show every profile by name with its number of specs. The detail page `/quality-profiles/:id` SHALL group
+the specs by stage in process order (Brewhouse (cold wort), Maturation, Bright beer, Packaged), showing for each
+the catalog name and unit of the parameter, its acceptance range, internal range and target, with "—" for an
+absent range or target and "≤ x" / "≥ x" for a half-open one. Users who may write quality profiles (admin,
+brewer) SHALL be able to create a profile (name and an optional template, or a blank profile), add, edit and
+delete specs (deleting asks for confirmation). Everyone else MUST see no write control. The spec form SHALL
+offer, per stage, only the parameters not yet specified, check the obvious rules on the client (min below max,
+values within the parameter's physical range, internal inside acceptance, target inside the tightest range) and
+show server errors next to the input they name (`name`, `acceptance.min`, `internal.max`, ...). The pages are
+lazy chunks; the server stays authoritative.
+
+#### Scenario: Create from a template
+- GIVEN a brewer on `/quality-profiles`
+- WHEN they create a profile with a name and the `pale_lager` template
+- THEN `POST /quality-profiles` carries both and the app opens the new profile's detail page
+
+#### Scenario: Duplicate name
+- GIVEN a profile named "House lager"
+- WHEN a brewer creates another with that name and the API answers 409 on `name`
+- THEN the message is shown on the name field
+
+#### Scenario: Specs by stage
+- GIVEN a profile with specs at several stages
+- WHEN its detail page opens
+- THEN each stage is a section in process order, and a spec with only a maximum shows "≤ max" with its unit
+
+#### Scenario: Edit rejected by the server
+- GIVEN a brewer editing a spec
+- WHEN the API answers 422 on `internal.min`
+- THEN the message appears next to "Internal min" and disappears when they edit that input
+
+#### Scenario: Delete
+- GIVEN a brewer on a profile detail page
+- WHEN they choose Delete on a spec and confirm
+- THEN `DELETE /quality-profiles/{id}/specs/{stage}/{parameter}` is sent and the spec disappears
+
+#### Scenario: Viewer
+- GIVEN a signed-in `viewer`
+- WHEN they open the list or a detail page
+- THEN they see everything and no "New profile", "Add specification", Edit or Delete control
+
 ## Known limitations / future work
 
 - Batch and alert UI do not exist yet: batch form (templates, start/finish), active batch on cards and

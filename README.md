@@ -824,3 +824,11 @@ por lo que en cada reconexión el cliente invalida (y vuelve a pedir por REST) l
 las series agregadas de ese tanque. Las invalidaciones de la lista se agrupan (250 ms) cuando varios
 sockets reabren a la vez, y las series agregadas respetan el mismo límite de 15 s por tanque. Un
 tanque con cierre definitivo (4403/4404) no marca "Offline" mientras otros sigan transmitiendo.
+
+### Perfiles de calidad en la UI
+
+La navegación incluye "Quality" (todos los roles) hacia `/quality-profiles`: lista de perfiles con su número de
+especificaciones y, para `admin`/`brewer`, "New profile" (nombre y plantilla opcional o perfil en blanco).
+`/quality-profiles/:id` agrupa las especificaciones por etapa (mosto frío, maduración, cerveza brillante,
+envasado) con aceptación, rango interno y objetivo; `admin`/`brewer` pueden agregar, editar y borrar (con
+confirmación); el `viewer` solo lee. Los errores `422`/`409` del servidor se muestran junto a su campo.

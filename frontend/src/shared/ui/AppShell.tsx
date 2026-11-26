@@ -22,6 +22,7 @@ export const DEFAULT_NAV: NavItem[] = [
   { to: "/", label: "Tanks", sections: ["/tanks"] },
   { to: "/batches", label: "Batches", sections: ["/batches"] },
   { to: "/alerts", label: "Alerts", sections: ["/alerts"] },
+  { to: "/quality-profiles", label: "Quality", sections: ["/quality-profiles"] },
 ];
 
 function isCurrent(pathname: string, to: string, sections: string[]): boolean {

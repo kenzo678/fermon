@@ -147,3 +147,43 @@ export interface User {
   /** Optimistic-concurrency counter: send it back on edits. */
   version: number;
 }
+
+export type QualityStage = "brewhouse" | "maturation" | "bright_beer" | "packaged";
+
+/** One entry of the lab parameter catalog; `minimum`/`maximum` are the physically plausible limits. */
+export interface QualityParameterInfo {
+  code: string;
+  name: string;
+  unit: string;
+  minimum: number;
+  maximum: number;
+}
+
+/** Inclusive range; a null bound means no limit on that side. */
+export interface SpecRange {
+  min: number | null;
+  max: number | null;
+}
+
+export interface QualitySpec {
+  stage: QualityStage;
+  parameter: string;
+  unit: string;
+  acceptance: SpecRange;
+  internal: SpecRange | null;
+  target: number | null;
+}
+
+export interface QualityProfile {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  specs: QualitySpec[];
+}
+
+/** A preset that prefills a new profile; `template` is the value to send when creating. */
+export interface QualityProfileTemplate {
+  template: string;
+  specs: QualitySpec[];
+}

@@ -1,4 +1,15 @@
-import type { Alert, Batch, Measurement, Reading, Role, Tank, User } from "../shared/api";
+import type {
+  Alert,
+  Batch,
+  Measurement,
+  QualityParameterInfo,
+  QualityProfile,
+  QualitySpec,
+  Reading,
+  Role,
+  Tank,
+  User,
+} from "../shared/api";
 
 const UNITS: Record<Measurement, string> = {
   temperature: "celsius",
@@ -90,6 +101,36 @@ export function makeUser(overrides: Partial<User> = {}): User {
     must_change_password: false,
     active: true,
     version: 1,
+    ...overrides,
+  };
+}
+
+export const QUALITY_CATALOG: QualityParameterInfo[] = [
+  { code: "original_extract", name: "Original extract", unit: "°P", minimum: 0, maximum: 30 },
+  { code: "ph", name: "pH", unit: "pH", minimum: 0, maximum: 14 },
+  { code: "color", name: "Color", unit: "EBC", minimum: 0, maximum: 300 },
+  { code: "wort_oxygen", name: "Wort oxygen", unit: "ppm", minimum: 0, maximum: 50 },
+];
+
+export function makeQualitySpec(overrides: Partial<QualitySpec> = {}): QualitySpec {
+  return {
+    stage: "brewhouse",
+    parameter: "ph",
+    unit: "pH",
+    acceptance: { min: 5, max: 5.6 },
+    internal: { min: 5.1, max: 5.5 },
+    target: 5.3,
+    ...overrides,
+  };
+}
+
+export function makeQualityProfile(overrides: Partial<QualityProfile> = {}): QualityProfile {
+  return {
+    id: "p1",
+    name: "House lager",
+    description: null,
+    created_at: "2026-03-01T10:00:00Z",
+    specs: [],
     ...overrides,
   };
 }

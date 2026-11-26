@@ -101,15 +101,18 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
   return request<T>(buildUrl(path, options.params), {}, options.signal);
 }
 
-function writeInit(method: "POST" | "PATCH", body: unknown): RequestInit {
+/** Unsafe methods the API accepts; all of them carry the CSRF header. */
+type WriteMethod = "POST" | "PATCH" | "PUT" | "DELETE";
+
+function writeInit(method: WriteMethod, body: unknown): RequestInit {
   return body === undefined
     ? { method }
     : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
-/** POST/PATCH with an optional JSON body; same error contract as `apiGet`. */
+/** POST/PATCH/PUT with an optional JSON body; same error contract as `apiGet`. */
 export async function apiSend<T>(
-  method: "POST" | "PATCH",
+  method: Exclude<WriteMethod, "DELETE">,
   path: string,
   body?: unknown,
   options: Pick<RequestOptions, "signal"> = {},
@@ -117,9 +120,9 @@ export async function apiSend<T>(
   return request<T>(buildUrl(path, undefined), writeInit(method, body), options.signal);
 }
 
-/** Like `apiSend` for endpoints that answer 204 with no body (logout, password changes). */
+/** Like `apiSend` for endpoints that answer 204 with no body (logout, password changes, deletes). */
 export async function apiSendEmpty(
-  method: "POST" | "PATCH",
+  method: WriteMethod,
   path: string,
   body?: unknown,
   options: Pick<RequestOptions, "signal"> = {},

@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { API_URL } from "../shared/api";
 import { createFakeSocketHub } from "../test/fakeSocket";
-import { makeAlert, makeBatch, makeTank, makeUser } from "../test/fixtures";
+import { makeAlert, makeBatch, makeQualityProfile, makeTank, makeUser } from "../test/fixtures";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { server } from "../test/server";
 import { AppRoutes } from "./AppRoutes";
@@ -72,6 +72,29 @@ describe("AppRoutes", () => {
     renderWithProviders(<AppRoutes />, { route: "/batches/new" });
     expect(await screen.findByRole("heading", { level: 2, name: "New batch" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Beer name")).toBeInTheDocument();
+  });
+
+  it("renders the quality profiles list at /quality-profiles, with its nav item for a viewer", async () => {
+    server.use(
+      http.get(`${API_URL}/quality-profiles`, () => HttpResponse.json([makeQualityProfile()])),
+      http.get(`${API_URL}/quality-profile-templates`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/alerts`, () => HttpResponse.json([])),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/quality-profiles", user: makeUser({ role: "viewer" }) });
+    expect(await screen.findByRole("heading", { level: 2, name: "Quality profiles" })).toBeInTheDocument();
+    expect(await screen.findAllByRole("link", { name: "House lager" })).not.toHaveLength(0);
+    expect(screen.getByRole("link", { name: "Quality" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "New profile" })).not.toBeInTheDocument();
+  });
+
+  it("renders a quality profile at /quality-profiles/:profileId", async () => {
+    server.use(
+      http.get(`${API_URL}/quality-profiles/p1`, () => HttpResponse.json(makeQualityProfile())),
+      http.get(`${API_URL}/quality-parameters`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/alerts`, () => HttpResponse.json([])),
+    );
+    renderWithProviders(<AppRoutes />, { route: "/quality-profiles/p1" });
+    expect(await screen.findByRole("heading", { level: 2, name: "House lager" })).toBeInTheDocument();
   });
 
   it("renders a batch at /batches/:batchId", async () => {

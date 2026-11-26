@@ -38,8 +38,8 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
 ## Tareas
 - [x] T1 — Backend: `PATCH /tanks/{id}` (`display_name`, 1–64 caracteres o `null`, solo admin), con spec
   y README. Ruta: delegada (escritor único).
-- [ ] T2 — Frontend: página de perfiles de calidad (lista, crear vacío/desde plantilla, editar y borrar
-  especificaciones), según rol. Ruta: delegada.
+- [x] T2 — Frontend: página de perfiles de calidad (lista, crear vacío/desde plantilla, editar y borrar
+  especificaciones), según rol. Ruta: delegada (escritor único).
 - [ ] T3 — Frontend: perfil en el formulario y detalle del lote; análisis de laboratorio en el detalle
   del lote (lista con estados y formulario de carga). Ruta: delegada.
 - [ ] T4 — Frontend: renombrar tanque desde el detalle (admin); e2e del flujo completo (lote con perfil
@@ -59,5 +59,17 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
   migración (la columna existe) ni `version`: última escritura gana. `ensure` solo reescribe
   `first_seen_at`, así que no pisa el nombre. Suite 1014 passed; ruff y mypy limpios.
 
+- T2 hecha (sin commit aún). Ruta: delegada (escritor único). TDD: RED observado en cliente
+  (`TS2345: '"DELETE"' is not assignable to '"POST" | "PATCH"'`, tipos de `apiSend`/`apiSendEmpty`
+  ampliados a PUT/DELETE), en módulos puros y páginas (`Failed to resolve import "./format"` y
+  `"./QualityProfileDetailPage"`), y en nav/rutas (`Unable to find ... link ... name "Quality"`); luego GREEN.
+  Nuevo `features/quality/` (api, hooks, format, form, páginas lista y detalle, `SpecForm`, `SpecsByStage`),
+  nav "Quality" y rutas lazy. Sin cambios de backend (`canWriteQualityProfiles` ya existía). Suite 419
+  passed; lint, typecheck y build limpios. Supera ~400 líneas por incluir tests y UI de dos páginas.
+
+- Revisión RDD de T1 (`413d7bb`, riesgo medio) y de T2 (`70d44bb`, riesgo medio): aprobadas y
+  reconocidas. Deuda no bloqueante de T2: si falla la carga de plantillas, el formulario de perfil nuevo
+  las muestra vacías sin error; sugerencias menores en el error de borrado y la validación numérica.
+
 ## Próximo paso
-T2.
+T3.

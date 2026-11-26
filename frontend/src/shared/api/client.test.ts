@@ -290,7 +290,7 @@ describe("session credentials and CSRF header", () => {
     fetchSpy.mockRestore();
   });
 
-  it.each(["POST", "PATCH"] as const)("sends X-Requested-With on %s, with and without a body", async (method) => {
+  it.each(["POST", "PATCH", "PUT"] as const)("sends X-Requested-With on %s, with and without a body", async (method) => {
     const headers: Array<string | null> = [];
     const handler = http.all(`${BASE}/w`, ({ request }) => {
       headers.push(request.headers.get("x-requested-with"));
@@ -304,6 +304,22 @@ describe("session credentials and CSRF header", () => {
 });
 
 describe("apiSendEmpty", () => {
+  it("supports DELETE (204, CSRF header) and PUT", async () => {
+    const seen: Array<{ method: string; header: string | null }> = [];
+    server.use(
+      http.all(`${BASE}/specs/1`, ({ request }) => {
+        seen.push({ method: request.method, header: request.headers.get("x-requested-with") });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    await expect(apiSendEmpty("DELETE", "/specs/1")).resolves.toBeUndefined();
+    await expect(apiSendEmpty("PUT", "/specs/1", { a: 1 })).resolves.toBeUndefined();
+    expect(seen).toEqual([
+      { method: "DELETE", header: "fermon" },
+      { method: "PUT", header: "fermon" },
+    ]);
+  });
+
   it("accepts a 204 response and sends the CSRF header and credentials", async () => {
     let seen: { header: string | null; body: unknown } | undefined;
     server.use(

@@ -44,7 +44,7 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
   del lote (lista con estados y formulario de carga). Ruta: delegada (escritor único).
 - [x] T4 — Frontend: renombrar tanque desde el detalle (admin); e2e del flujo completo (lote con perfil
   → análisis → reporte con el análisis); docs. Ruta: delegada (escritor único).
-- [ ] PR — abrirlo (lo hace el usuario).
+- [x] PR — #17, fusionado.
 
 ## Criterios de aceptación
 - Un brewer crea un perfil desde `pale_lager`, lo asigna a un lote, carga un análisis de mosto y ve
@@ -101,5 +101,5 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
   "E2E Pale lager <ts>" y un lote finalizado en la base dev (los perfiles no se pueden borrar).
 
 ## Próximo paso
-PR abierto a `main`; tras el merge, sincronizar Engram. Después: sensores físicos (ESP32) o endurecer
-seguridad para publicar.
+Fusionado en `main` (PR #17, `d4b34da`); Engram sincronizado (PR #18). Feature cerrada. Siguiente: ver
+`odd/ESTADO.md` (hardware casero o publicación).

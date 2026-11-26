@@ -3,6 +3,9 @@
 Monitoreo de tanques de fermentación (temperatura, presión y alcohol) para un proyecto de tesis.
 Todo el desarrollo se ejecuta dentro de Docker; no se requiere Python en el equipo anfitrión.
 
+Estado actual y próximos pasos: [`odd/ESTADO.md`](odd/ESTADO.md). Guía para retomar el desarrollo
+(con Claude Code u otro agente, con o sin gentle-ai): [`AGENTS.md`](AGENTS.md).
+
 ## Estructura
 
 - `backend/`: API FastAPI con arquitectura hexagonal (`src/fermon/fermentation/{domain,application,infrastructure}`).

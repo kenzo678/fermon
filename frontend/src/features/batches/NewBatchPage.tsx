@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import { useQualityProfilesQuery } from "../quality/hooks";
 import { ErrorState } from "../tanks/components/ErrorState";
 import { useTanksQuery } from "../tanks/useTanksQuery";
 import { BatchForm } from "./components/BatchForm";
@@ -11,6 +12,7 @@ export function NewBatchPage() {
   const [searchParams] = useSearchParams();
   const tanks = useTanksQuery();
   const templates = useBatchTemplatesQuery();
+  const profiles = useQualityProfilesQuery();
   const create = useCreateBatch();
   const serverErrors = useMemo(
     () => (create.error === null ? null : mapServerErrors(create.error)),
@@ -40,6 +42,7 @@ export function NewBatchPage() {
           initialValues={initialValues}
           tanks={tanks.data}
           templates={templates.data}
+          profiles={profiles.data}
           submitLabel="Create batch"
           submitting={create.isPending}
           serverErrors={serverErrors}

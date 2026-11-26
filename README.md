@@ -832,3 +832,10 @@ especificaciones y, para `admin`/`brewer`, "New profile" (nombre y plantilla opc
 `/quality-profiles/:id` agrupa las especificaciones por etapa (mosto frío, maduración, cerveza brillante,
 envasado) con aceptación, rango interno y objetivo; `admin`/`brewer` pueden agregar, editar y borrar (con
 confirmación); el `viewer` solo lee. Los errores `422`/`409` del servidor se muestran junto a su campo.
+
+El formulario de lote (crear y editar) ofrece "Quality profile" (opcional, "None" por defecto; deshabilitado en
+lotes terminados) y el detalle muestra el perfil enlazado. Debajo, "Lab analyses" lista los análisis por etapa con
+resumen ("1 out of spec, 1 warning") y cada valor con su estado (In spec verde, Warning ámbar, Out of spec rojo,
+No spec gris, siempre con texto). `admin`/`brewer` registran uno con "Record analysis" (etapa, fecha de muestreo
+sin futuro, analista, notas y valores validados contra los límites físicos del catálogo; sugiere los parámetros
+del perfil para la etapa); un lote planificado solo muestra una nota y el `viewer` solo lee.

@@ -70,6 +70,7 @@ export function makeBatch(overrides: Partial<Batch> = {}): Batch {
     finished_at: null,
     notes: null,
     created_at: "2026-02-28T10:00:00Z",
+    quality_profile_id: null,
     version: 1,
     ...overrides,
   };

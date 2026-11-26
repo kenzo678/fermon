@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router";
 import { describe, expect, it } from "vitest";
 import { API_URL } from "../../shared/api";
 import type { Batch, BatchTemplate } from "../../shared/api";
-import { makeBatch, makeTank, makeUser } from "../../test/fixtures";
+import { QUALITY_CATALOG, makeBatch, makeQualityProfile, makeTank, makeUser } from "../../test/fixtures";
 import { createTestQueryClient, renderWithProviders } from "../../test/renderWithProviders";
 import { server } from "../../test/server";
 import { tankKeys } from "../tanks/api";
@@ -29,8 +29,16 @@ function mockCatalog() {
   server.use(
     http.get(`${API_URL}/tanks`, () => HttpResponse.json([makeTank("tank-1"), makeTank("tank-2")])),
     http.get(`${API_URL}/batch-templates`, () => HttpResponse.json(templates)),
+    http.get(`${API_URL}/quality-profiles`, () => HttpResponse.json(profiles)),
+    http.get(`${API_URL}/quality-parameters`, () => HttpResponse.json(QUALITY_CATALOG)),
+    http.get(`${API_URL}/batches/:batchId/lab-analyses`, () => HttpResponse.json([])),
   );
 }
+
+const profiles = [
+  makeQualityProfile({ id: "p1", name: "House lager" }),
+  makeQualityProfile({ id: "p2", name: "Seasonal" }),
+];
 
 function Pages() {
   return (
@@ -120,10 +128,71 @@ describe("NewBatchPage", () => {
     );
   });
 
+  it("offers the quality profiles with None by default and sends the chosen one", async () => {
+    mockCatalog();
+    let body: unknown;
+    server.use(
+      http.post(`${API_URL}/batches`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBatch({ id: "new-1", quality_profile_id: "p2" }), { status: 201 });
+      }),
+      http.get(`${API_URL}/batches/new-1`, () => HttpResponse.json(makeBatch({ id: "new-1" }))),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Pages />, { route: "/batches/new" });
+    await fill(user);
+    const select = screen.getByLabelText("Quality profile");
+    expect(select).toHaveValue("");
+    expect(within(select).getByRole("option", { name: "None" })).toBeInTheDocument();
+    await user.selectOptions(select, "Seasonal");
+    await user.click(screen.getByRole("button", { name: "Create batch" }));
+    await screen.findByRole("heading", { level: 2, name: "Pale Ale" });
+    expect(body).toMatchObject({ quality_profile_id: "p2" });
+  });
+
+  it("omits the profile when None is kept", async () => {
+    mockCatalog();
+    let body: unknown;
+    server.use(
+      http.post(`${API_URL}/batches`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBatch({ id: "new-1" }), { status: 201 });
+      }),
+      http.get(`${API_URL}/batches/new-1`, () => HttpResponse.json(makeBatch({ id: "new-1" }))),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Pages />, { route: "/batches/new" });
+    await fill(user);
+    await user.click(screen.getByRole("button", { name: "Create batch" }));
+    await screen.findByRole("heading", { level: 2, name: "Pale Ale" });
+    expect(body).not.toHaveProperty("quality_profile_id");
+  });
+
+  it("maps a 404 on the profile next to its select", async () => {
+    mockCatalog();
+    server.use(
+      http.post(`${API_URL}/batches`, () =>
+        HttpResponse.json(
+          { detail: [{ field: "quality_profile_id", message: "Quality profile not found" }] },
+          { status: 404 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Pages />, { route: "/batches/new" });
+    await fill(user);
+    await user.selectOptions(screen.getByLabelText("Quality profile"), "House lager");
+    await user.click(screen.getByRole("button", { name: "Create batch" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Quality profile")).toHaveAccessibleDescription("Quality profile not found"),
+    );
+  });
+
   it("shows an error state when tanks fail to load", async () => {
     server.use(
       http.get(`${API_URL}/tanks`, () => HttpResponse.json({ detail: [] }, { status: 500 })),
       http.get(`${API_URL}/batch-templates`, () => HttpResponse.json(templates)),
+      http.get(`${API_URL}/quality-profiles`, () => HttpResponse.json(profiles)),
     );
     renderWithProviders(<Pages />, { route: "/batches/new" });
     expect(await screen.findByRole("alert")).toHaveTextContent("Request failed with status 500");
@@ -144,6 +213,7 @@ describe("NewBatchPage", () => {
           ? HttpResponse.json({ detail: [] }, { status: 500 })
           : HttpResponse.json(templates);
       }),
+      http.get(`${API_URL}/quality-profiles`, () => HttpResponse.json(profiles)),
     );
     const user = userEvent.setup();
     renderWithProviders(<Pages />, { route: "/batches/new" });
@@ -239,6 +309,59 @@ describe("BatchDetailPage", () => {
     expect(await screen.findByText("Finished")).toBeInTheDocument();
     expect(screen.getByLabelText("Beer name")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  });
+
+  it("shows the batch's profile in the form and saves a change or a clear", async () => {
+    mockBatch(makeBatch({ version: 4, quality_profile_id: "p1" }));
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      http.patch(`${API_URL}/batches/b1`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        bodies.push(body);
+        return HttpResponse.json(makeBatch({ quality_profile_id: body.quality_profile_id as string | null, version: 5 }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    await screen.findByRole("option", { name: "Seasonal" });
+    expect(screen.getByLabelText("Quality profile")).toHaveValue("p1");
+    await user.selectOptions(screen.getByLabelText("Quality profile"), "Seasonal");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ quality_profile_id: "p2", version: 4 });
+    await user.selectOptions(screen.getByLabelText("Quality profile"), "None");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toMatchObject({ quality_profile_id: null });
+  });
+
+  it("disables the profile select once the batch is finished", async () => {
+    mockBatch(makeBatch({ status: "finished", quality_profile_id: "p1", version: 3 }));
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    await screen.findByRole("option", { name: "Seasonal" });
+    expect(screen.getByLabelText("Quality profile")).toBeDisabled();
+  });
+
+  it("shows the lab analyses of an active batch, and only a note while it is planned", async () => {
+    mockBatch(makeBatch({ status: "active", started_at: "2026-03-01T10:05:00Z", version: 2 }));
+    const { unmount } = renderWithProviders(<Pages />, { route: "/batches/b1" });
+    expect(await screen.findByRole("heading", { name: "Lab analyses" })).toBeInTheDocument();
+    expect(await screen.findByText("No analyses recorded yet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Record analysis" })).toBeInTheDocument();
+    unmount();
+    mockBatch(makeBatch());
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    expect(await screen.findByText(/once the batch is active/)).toBeInTheDocument();
+  });
+
+  it("links the profile name to its page, or says there is none", async () => {
+    mockBatch(makeBatch({ quality_profile_id: "p1" }));
+    const { unmount } = renderWithProviders(<Pages />, { route: "/batches/b1" });
+    expect(await screen.findByRole("link", { name: "House lager" })).toHaveAttribute("href", "/quality-profiles/p1");
+    unmount();
+    mockBatch(makeBatch());
+    renderWithProviders(<Pages />, { route: "/batches/b1" });
+    expect(await screen.findByText("No quality profile")).toBeInTheDocument();
   });
 
   it("saves edits sending the current version", async () => {

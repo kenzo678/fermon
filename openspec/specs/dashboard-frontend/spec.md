@@ -362,6 +362,68 @@ lazy chunks; the server stays authoritative.
 - WHEN they open the list or a detail page
 - THEN they see everything and no "New profile", "Add specification", Edit or Delete control
 
+### Requirement: Batch quality profile and lab analyses
+The batch create and edit form SHALL offer an optional "Quality profile" select, loaded from `/quality-profiles`,
+with "None" as its default; it SHALL send `quality_profile_id` only when one is chosen on create, and send the id
+or `null` (to clear it) on edit, and it SHALL be disabled for finished batches. A 404 on `quality_profile_id`
+SHALL appear next to the select. The batch detail page SHALL show the profile name linked to
+`/quality-profiles/:id`, or "No quality profile". Below the form it SHALL show a "Lab analyses" section: for a
+planned batch only a note that analyses can be recorded once the batch is active; otherwise the analyses grouped by
+stage in process order, each with its sampling time (local), analyst, notes, a one-line summary (such as
+"1 out of spec, 1 warning") and every value with the catalog name, unit and a status badge. Badges SHALL carry a
+text label as well as a colour: In spec green, Warning amber, Out of spec red, No spec grey. `admin` and `brewer`
+SHALL see a "Record analysis" form; a `viewer` SHALL only read.
+
+#### Scenario: Choose a profile on a batch
+- GIVEN a brewer creating a batch
+- WHEN they pick "Seasonal" in "Quality profile" and save
+- THEN `POST /batches` carries that profile's id, and leaving "None" omits `quality_profile_id`
+
+#### Scenario: Clear the profile
+- GIVEN an active batch with a profile
+- WHEN a brewer selects "None" and saves
+- THEN the PATCH body carries `quality_profile_id: null`
+
+#### Scenario: Unknown profile
+- GIVEN the API answers 404 on `quality_profile_id`
+- WHEN the form is submitted
+- THEN the message appears next to the "Quality profile" select
+
+#### Scenario: Analyses of an active batch
+- GIVEN an active batch with a brewhouse analysis holding one out-of-spec and one warning value
+- WHEN its detail page opens
+- THEN the Brewhouse (cold wort) group shows the analysis with "1 out of spec, 1 warning" and each value with its
+  unit and its labelled badge
+
+#### Scenario: Planned batch
+- GIVEN a planned batch
+- WHEN its detail page opens
+- THEN the Lab analyses section only says analyses can be recorded once the batch is active
+
+#### Scenario: Record an analysis with suggestions
+- GIVEN a brewer on a batch whose profile specifies pH and color for brewhouse
+- WHEN they open "Record analysis"
+- THEN the stage is Brewhouse, "Sampled at" is now, and pH and Color rows are suggested; a parameter already chosen
+  in another row is not offered again
+- AND WHEN they enter values and save, `POST /batches/{id}/lab-analyses` is sent with the values keyed by
+  parameter code, the form closes and the new analysis appears with its evaluated statuses
+
+#### Scenario: Client-side checks
+- GIVEN the record form
+- WHEN "Sampled at" is in the future or a value is outside the parameter's physical limits
+- THEN the message appears next to the input and nothing is sent
+
+#### Scenario: Server errors
+- GIVEN the API answers 422 on `values.ph` and `sampled_at`
+- WHEN the form is submitted
+- THEN the messages appear on the pH row and next to "Sampled at"
+- AND a 409 on `status` appears as a form-level message
+
+#### Scenario: Viewer
+- GIVEN a signed-in `viewer`
+- WHEN they open an active batch
+- THEN they see its analyses and no "Record analysis" control
+
 ## Known limitations / future work
 
 - Batch and alert UI do not exist yet: batch form (templates, start/finish), active batch on cards and

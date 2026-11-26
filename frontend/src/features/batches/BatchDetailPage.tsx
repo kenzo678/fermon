@@ -4,6 +4,8 @@ import { ApiError } from "../../shared/api";
 import type { Batch } from "../../shared/api";
 import { usePermissions } from "../auth";
 import { formatDateTime } from "../tanks/format";
+import { LabAnalysesSection } from "../lab/LabAnalysesSection";
+import { useQualityProfilesQuery } from "../quality/hooks";
 import { ErrorState } from "../tanks/components/ErrorState";
 import { useTanksQuery } from "../tanks/useTanksQuery";
 import { BatchForm } from "./components/BatchForm";
@@ -40,6 +42,7 @@ export function BatchDetailPage() {
   const batch = useBatchQuery(batchId);
   const tanks = useTanksQuery();
   const templates = useBatchTemplatesQuery();
+  const profiles = useQualityProfilesQuery();
   const { canWriteBatches, canDownloadReports } = usePermissions();
   // The server copy the form was last (re)started from, and whether the user has unsaved edits on it.
   const [adopted, setAdopted] = useState<Batch | null>(null);
@@ -109,6 +112,18 @@ export function BatchDetailPage() {
           </Link>
           {data.started_at !== null && <> · Started {formatDateTime(data.started_at)}</>}
           {data.finished_at !== null && <> · Finished {formatDateTime(data.finished_at)}</>}
+        </p>
+        <p className="text-sm text-slate-600">
+          {data.quality_profile_id === null ? (
+            "No quality profile"
+          ) : (
+            <>
+              Quality profile{" "}
+              <Link to={`/quality-profiles/${encodeURIComponent(data.quality_profile_id)}`} className="font-medium underline">
+                {profiles.data?.find((p) => p.id === data.quality_profile_id)?.name ?? "View profile"}
+              </Link>
+            </>
+          )}
         </p>
         {canWriteBatches && data.status === "planned" && (
           <button
@@ -195,6 +210,7 @@ export function BatchDetailPage() {
           onDirtyChange={setDirty}
           tanks={tanks.data}
           templates={templates.data}
+          profiles={profiles.data}
           submitLabel="Save changes"
           submitting={update.isPending}
           serverErrors={formErrors}
@@ -215,6 +231,7 @@ export function BatchDetailPage() {
       ) : (
         <div role="status" aria-label="Loading form" className="h-64 animate-pulse rounded-lg bg-slate-200" />
       )}
+      <LabAnalysesSection batch={data} profile={profiles.data?.find((p) => p.id === data.quality_profile_id)} />
     </section>
   );
 }

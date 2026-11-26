@@ -40,8 +40,8 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
   y README. Ruta: delegada (escritor único).
 - [x] T2 — Frontend: página de perfiles de calidad (lista, crear vacío/desde plantilla, editar y borrar
   especificaciones), según rol. Ruta: delegada (escritor único).
-- [ ] T3 — Frontend: perfil en el formulario y detalle del lote; análisis de laboratorio en el detalle
-  del lote (lista con estados y formulario de carga). Ruta: delegada.
+- [x] T3 — Frontend: perfil en el formulario y detalle del lote; análisis de laboratorio en el detalle
+  del lote (lista con estados y formulario de carga). Ruta: delegada (escritor único).
 - [ ] T4 — Frontend: renombrar tanque desde el detalle (admin); e2e del flujo completo (lote con perfil
   → análisis → reporte con el análisis); docs; PR. Ruta: delegada.
 
@@ -71,5 +71,18 @@ reconoció una alerta, publicación (config de producción, retención) y sensor
   reconocidas. Deuda no bloqueante de T2: si falla la carga de plantillas, el formulario de perfil nuevo
   las muestra vacías sin error; sugerencias menores en el error de borrado y la validación numérica.
 
+- T3 hecha (sin commit aún). Ruta: delegada (escritor único). TDD: RED observado en `form.test.ts` de
+  lotes (`expected undefined to be ''` para `quality_profile_id`), en la página (`Unable to find a label with
+  the text of: Quality profile`), y en el módulo nuevo `features/lab/` (`Failed to resolve import "./api"`,
+  `"./form"`, `"./LabAnalysesSection"`) y en el detalle (`Unable to find role="heading" and name "Lab
+  analyses"`); luego GREEN. Nuevo `features/lab/` (api, hooks, form puro, format, tarjeta, formulario de
+  registro, sección); `Batch.quality_profile_id` en el tipo; las sugerencias salen de la lista de perfiles ya
+  cargada (incluye specs). Sin cambios de backend. Suite 467 passed; lint, typecheck y build limpios. Supera
+  ~400 líneas por incluir tests y dos superficies de UI.
+
+- Revisión RDD de T3 (riesgo medio) aprobada y reconocida; la de T1+T2 juntos (2163 líneas) también.
+  Deuda no bloqueante de T3: errores del servidor que no corresponden a una fila caen como mensaje
+  general; si falla la lista de perfiles, el select del lote muestra solo "None".
+
 ## Próximo paso
-T3.
+T4.

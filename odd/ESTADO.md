@@ -64,7 +64,7 @@ Detalle completo en cada doc de `odd/tasks/`. Lo principal:
 
 ## Próximo paso
 1. **Hardware casero** (planificado, sin iniciar): `odd/tasks/esp32-homemade-sensors.md`. Primero hay
-   que conseguir los sensores (DS18B20 y transductor de presión).
+   que comprar los sensores (2× DS18B20 sumergible y MPX5999D); la lista completa está en el doc.
 2. **Publicación**: compose de producción, HTTPS, autenticación en MQTT, retención de datos y la deuda de
    seguridad de arriba.
 

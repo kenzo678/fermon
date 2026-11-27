@@ -40,6 +40,14 @@
       "sessions": 1,
       "memories": 5,
       "prompts": 0
+    },
+    {
+      "id": "66204cd6",
+      "created_by": "parzival",
+      "created_at": "2026-11-27T02:17:53.664065608Z",
+      "sessions": 4,
+      "memories": 1,
+      "prompts": 0
     }
   ]
 }

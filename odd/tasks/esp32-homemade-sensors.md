@@ -12,8 +12,8 @@ ESP32, Arduino Nano, dos pantallas OLED I2C (3.3–5 V; probablemente SSD1306 12
 Ninguno mide nada: faltan los sensores.
 
 ## Lista de compra
-Tienda: **EC Robotics** (https://ecrobotics.com.bo, Bolivia); todo lo de abajo está disponible ahí salvo lo
-de ferretería. Precio estudiantil presentando el carnet. Precios vistos el 2026-11-26.
+Tienda: **EC Robotics** (https://ecrobotics.com.bo, Bolivia). Los sensores se confirmaron disponibles ahí; los
+genéricos son de catálogo habitual pero no se verificaron uno por uno, y lo de ferretería va aparte. Precio estudiantil presentando el carnet. Precios vistos el 2026-11-26.
 
 ### Sensores (decididos)
 | Cant. | Componente | Precio | Para qué | Notas |

@@ -3,8 +3,7 @@
 Monitoreo de tanques de fermentación (temperatura, presión y alcohol) para un proyecto de tesis.
 Todo el desarrollo se ejecuta dentro de Docker; no se requiere Python en el equipo anfitrión.
 
-Estado actual y próximos pasos: [`odd/ESTADO.md`](odd/ESTADO.md). Guía para retomar el desarrollo
-(con Claude Code u otro agente, con o sin gentle-ai): [`AGENTS.md`](AGENTS.md).
+Estado actual y próximos pasos: [`odd/ESTADO.md`](odd/ESTADO.md).
 
 ## Estructura
 
@@ -444,7 +443,7 @@ los parámetros derivados por fórmula (p. ej. color = absorbancia × 25) se car
 
 Cada lote `active` o `finished` se puede descargar como PDF o CSV; un lote `planned` responde `409` (`field:
 "status"`) y uno desconocido `404` (`field: "batch_id"`). Cualquier rol con sesión puede descargarlos
-(también `viewer`); el reporte es determinista, sin IA, y sale de los mismos datos que ven el panel y la API.
+(también `viewer`); el reporte es determinista y sale de los mismos datos que ven el panel y la API.
 
 | Endpoint | Respuesta |
 | --- | --- |

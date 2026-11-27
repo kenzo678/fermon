@@ -12,8 +12,8 @@ ESP32, Arduino Nano, dos pantallas OLED I2C (3.3–5 V; probablemente SSD1306 12
 Ninguno mide nada: faltan los sensores.
 
 ## Lista de compra
-Tienda de referencia: EC Robotics (Bolivia), con precio estudiantil presentando el carnet. Precios
-vistos el 2026-11-26.
+Tienda: **EC Robotics** (https://ecrobotics.com.bo, Bolivia); todo lo de abajo está disponible ahí salvo lo
+de ferretería. Precio estudiantil presentando el carnet. Precios vistos el 2026-11-26.
 
 ### Sensores (decididos)
 | Cant. | Componente | Precio | Para qué | Notas |
@@ -21,14 +21,15 @@ vistos el 2026-11-26.
 | 2 | Sensor DS18B20 Sumergible (funda de acero) | 25 Bs c/u | Temperatura del líquido | Digital 1-Wire, ±0.5 °C, 3.3 V. Uno de repuesto o para un segundo tanque |
 | 1 | Sensor de presión MPX5999D | 180 Bs (estudiantil) | Presión del espacio de cabeza (CO₂) | 0–1000 kPa, salida 0.2–4.7 V, 5 V → va al Nano. Sin rosca ni pico: hay que adaptar el montaje. Error ±2.5 % FS (~±0.25 bar): se compensa con calibración en dos puntos. **Solo gas, nunca líquido** |
 | 1 | Módulo MPU6050 | — | Solo F5 (hidrómetro → densidad → alcohol) | Opcional |
+| 1 | Módulo RTC DS3231 (con pila CR2032) | — | Hora de respaldo | El ESP32 sincroniza por NTP; el DS3231 guarda la hora si arranca sin WiFi o se corta la luz, así las lecturas en buffer salen con `recorded_at` correcto. Comparte el bus I2C con la OLED (dirección 0x68, sin conflicto) |
 | (1) | Módulo DS18B20 | 25 Bs | Adaptador | Solo si trae bornera para el sensor sumergible (incluye el pull-up). Si trae el sensor soldado, no hace falta |
 
 Descartados: BMP280/BMP180/BME280 (presión del aire ambiente, no del tanque), DHT/SHT (aire),
 LM35/TMP36/NTC (no sumergibles, analógicos), termocupla K/MAX6675 (para altas temperaturas, ±2 °C),
 MLX90614 (infrarrojo, superficie), MQ-3 (vapor en el aire, no % del líquido), YF-S201 (caudal) y
 sensores de fuerza. Alternativa preferible para presión si se puede importar: HK1100C (rosca G1/4,
-0.5–4.5 V); el plan F2 sirve igual para ambos. No hace falta RTC (DS3231): el ESP32 toma la hora por NTP
-y la mantiene sin WiFi.
+0.5–4.5 V); el plan F2 sirve igual para ambos. El RTC DS3231 no es imprescindible (el ESP32 mantiene la hora
+de NTP mientras no se reinicie), pero se incluye como respaldo porque está disponible.
 
 ### Componentes genéricos
 | Cant. | Componente | Para qué |
@@ -43,6 +44,12 @@ y la mantiene sin WiFi.
 | 1 | Fuente 5 V / 2 A (sirve un cargador de celular) | Funcionar sin la PC |
 | 1 | Tira de pines macho (headers) | Por si el ESP32, el Nano o las OLED vienen sin soldar |
 | 1 | Bornera de 3 vías o terminales | Conexión firme del DS18B20 si no hay módulo adaptador |
+| 2–3 | Pulsadores (tact switch 6×6) | Cambiar de pantalla en la OLED; reinicio o calibración del cero de presión |
+| 5 | LEDs (verde, rojo, amarillo) + resistencias de 220 Ω | Estado a la vista: WiFi/MQTT conectado, error, envío |
+| 1 | Pila CR2032 | Para el DS3231, si no viene incluida |
+| 1 | Soldador de estaño + estaño | Soldar pines y conexiones definitivas |
+| 1 | Termocontraíble surtido y cinta aislante | Aislar las uniones del DS18B20 y la manguera |
+| 1 | Precintos (cintillos) | Ordenar cables cerca del fermentador |
 
 ### Ferretería / montaje (presión)
 | Cant. | Componente | Para qué |
